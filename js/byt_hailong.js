@@ -1,3 +1,9 @@
+// byt_hailong.js – Upload Engine Hailong-v13 tích hợp vào KSHL-MAIN v4
+// Hỗ trợ 2 nguồn: File Excel (.xlsx) + Google Sheet (tab NOI_TRU / NGOAI_TRU)
+// Kiến trúc: Popup window + win.eval() injection (giống byt.js gốc đang hoạt động)
+// ============================================================
+'use strict';
+
 // byt_hailong.js – Upload Engine Hailong-v13 tích hợp vào KSHL-MAIN
 // Hỗ trợ 2 nguồn dữ liệu: File Excel (.xlsx) + Google Sheet trực tiếp
 // Logic Playwright → Popup Browser (giữ nguyên 100% hailong-v13)
@@ -211,8 +217,12 @@ const HL_NGOAI_TRU_HEADERS = [
 /**
  * normalizeHeader – giống ExcelService.ts của hailong
  * "A1. Nội dung..." → "A1"
- * "E7.1 Khác" → "E7.1"
- */
+
+// ═══════════════════════════════════════════════════════════
+// 2. EXCEL PROVIDER – Đọc file .xlsx (SheetJS – giống hailong ExcelService.ts)
+// ═══════════════════════════════════════════════════════════
+
+/** normalizeHeader – port 100% từ ExcelService.ts hailong */
 function hlNormalizeHeader(raw) {
   const h = (raw || '').trim();
   const match = h.match(/^([A-Z]\d+(?:\.\d+)?)[.\s]/);
@@ -220,122 +230,78 @@ function hlNormalizeHeader(raw) {
   return h;
 }
 
-/**
- * Đọc file Excel (.xlsx) → ExcelRow[]
- * Dùng SheetJS (XLSX) – phải có <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js">
- */
+/** Đọc file Excel → ExcelRow[] dùng SheetJS */
 async function hlReadExcelFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const data = new Uint8Array(e.target.result);
+        if (typeof XLSX === 'undefined') throw new Error('SheetJS chưa load. Kiểm tra kết nối mạng và tải lại trang.');
+        const data     = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array', cellDates: false, raw: false });
         const sheetName = workbook.SheetNames[0];
         if (!sheetName) throw new Error('File Excel không có sheet nào');
-        const sheet = workbook.Sheets[sheetName];
+        const sheet   = workbook.Sheets[sheetName];
         const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false });
-        if (rawRows.length < 2) throw new Error('File Excel không có dữ liệu');
-
-        // Normalize headers (giống ExcelService.ts hailong)
-        const rawHeaders = rawRows[0].map(h => String(h ?? '').trim());
-        const headers    = rawHeaders.map(hlNormalizeHeader);
-
+        if (rawRows.length < 2) throw new Error('File Excel không có dữ liệu (cần ít nhất 1 dòng header + 1 dòng data)');
+        const headers = rawRows[0].map(h => hlNormalizeHeader(String(h ?? '').trim()));
         const rows = rawRows.slice(1)
           .filter(row => row.some(cell => cell !== '' && cell !== null && cell !== undefined))
           .map(rawRow => {
             const obj = {};
-            headers.forEach((header, i) => {
-              if (header) obj[header] = rawRow[i] ?? null;
-            });
+            headers.forEach((h, i) => { if (h) obj[h] = rawRow[i] ?? null; });
             return obj;
           });
         resolve({ rows, headers, totalRows: rows.length });
-      } catch(err) {
-        reject(err);
-      }
+      } catch(err) { reject(err); }
     };
     reader.onerror = () => reject(new Error('Không đọc được file'));
     reader.readAsArrayBuffer(file);
   });
 }
 
-/**
- * Tự động nhận diện loại phiếu từ ExcelRow[]
- * Dựa vào header đặc trưng
- */
-function hlDetectSurveyTypeFromHeaders(headers) {
-  const hSet = new Set(headers);
-  // Nội trú có TENKHOA_TRUOC_RAVIEN và SO_NGAY_NAM_VIEN
-  if (hSet.has('TENKHOA_TRUOC_RAVIEN') || hSet.has('SO_NGAY_NAM_VIEN')) return 'noi_tru';
-  // Ngoại trú có KHOANG_CACH_DEN_BV và LAN_KHAM
-  if (hSet.has('KHOANG_CACH_DEN_BV')  || hSet.has('LAN_KHAM'))          return 'ngoai_tru';
-  // Fallback: nếu có B10 → ngoại trú (nội trú chỉ đến B7)
-  if (hSet.has('B10') && !hSet.has('C11')) return 'ngoai_tru';
-  return 'noi_tru'; // default
+/** Tự nhận diện loại phiếu từ headers */
+function hlDetectSurveyType(headers) {
+  const h = new Set(headers);
+  if (h.has('TENKHOA_TRUOC_RAVIEN') || h.has('SO_NGAY_NAM_VIEN') || h.has('LAN_DIEU_TRI')) return 'noi_tru';
+  if (h.has('KHOANG_CACH_DEN_BV')  || h.has('LAN_KHAM'))                                   return 'ngoai_tru';
+  if (h.has('B10') && !h.has('C11'))                                                         return 'ngoai_tru';
+  return 'noi_tru';
 }
 
 // ═══════════════════════════════════════════════════════════
-// 3. GOOGLE SHEET PROVIDER – Đọc tab NOI_TRU / NGOAI_TRU
+// 3. GOOGLE SHEET PROVIDER
 // ═══════════════════════════════════════════════════════════
 
-/**
- * Đọc dữ liệu từ một tab Google Sheet và chuyển về ExcelRow[]
- * Chỉ lấy các dòng có UploadStatus != 'Success' (hoặc rỗng)
- */
 async function hlReadGoogleSheet(surveyType) {
   if (!gsReady()) throw new Error('Chưa cấu hình Google Sheets');
   const tabName = HL_GS_TABS[surveyType];
-  if (!tabName) throw new Error('Loại phiếu không hợp lệ: ' + surveyType);
-
-  // Đọc tất cả dữ liệu từ tab
   const raw = await gsReadRange(`${tabName}!A1:ZZ100000`);
   if (!raw || raw.length < 2) return { rows: [], rowIndices: [] };
-
   const headers   = raw[0].map(h => String(h ?? '').trim());
-  const dataRows  = raw.slice(1);
-
-  // Index các cột
   const colIndex  = {};
   headers.forEach((h, i) => { colIndex[h] = i; });
-
-  const rows       = [];
-  const rowIndices = []; // sheet row index (1-based, row 1 = header, row 2 = first data)
-
-  dataRows.forEach((row, idx) => {
-    const uploadStatus = (row[colIndex['UploadStatus']] || '').toString().trim();
-    // Bỏ qua dòng đã upload thành công
-    if (uploadStatus === 'Success') return;
-    // Bỏ qua dòng trống hoàn toàn
-    if (!row.some(cell => cell !== '' && cell !== null && cell !== undefined)) return;
-
+  const rows = [], rowIndices = [];
+  raw.slice(1).forEach((row, idx) => {
+    const status = (row[colIndex['UploadStatus']] || '').toString().trim();
+    if (status === 'Success') return;
+    if (!row.some(c => c !== '' && c !== null && c !== undefined)) return;
     const obj = {};
-    headers.forEach((h, i) => {
-      if (h) obj[h] = row[i] ?? null;
-    });
-    // Thêm index để cập nhật status sau
-    obj['_rowIndex'] = idx + 2; // +2 vì header ở row 1, data từ row 2
+    headers.forEach((h, i) => { if (h) obj[h] = row[i] ?? null; });
+    obj['_rowIndex'] = idx + 2;
     rows.push(obj);
     rowIndices.push(idx + 2);
   });
-
   return { rows, rowIndices, headers };
 }
 
-/**
- * Cập nhật UploadStatus của một dòng trong Google Sheet
- */
-async function hlUpdateGSRowStatus(surveyType, rowIndex, status, errorMsg = '') {
+async function hlUpdateGSRowStatus(surveyType, rowIndex, status, errorMsg) {
   if (!gsReady()) return;
   const tabName = HL_GS_TABS[surveyType];
-  // UploadStatus ở cột B (index 1), UploadTime ở C, UploadError ở D
   const now = new Date().toLocaleString('vi-VN');
-  await gsWriteRange(`${tabName}!B${rowIndex}:D${rowIndex}`, [[status, status === 'Success' ? now : '', errorMsg]]);
+  await gsWriteRange(`${tabName}!B${rowIndex}:D${rowIndex}`, [[status, status === 'Success' ? now : '', errorMsg || '']]);
 }
 
-/**
- * Tạo tab NOI_TRU / NGOAI_TRU trong Google Sheet nếu chưa có
- */
 async function hlInitGSTabs() {
   if (!gsReady()) { toast('Chưa cấu hình Google Sheets', 'warning'); return; }
   hlAddLog('info', 'Đang tạo tab NOI_TRU và NGOAI_TRU...');
@@ -345,387 +311,218 @@ async function hlInitGSTabs() {
     toast('✅ Đã tạo tab NOI_TRU và NGOAI_TRU', 'success');
     hlAddLog('ok', '✅ Tạo tab thành công: NOI_TRU, NGOAI_TRU');
   } catch(e) {
-    toast('❌ Lỗi tạo tab: ' + e.message, 'error');
+    toast('❌ Lỗi: ' + e.message, 'error');
     hlAddLog('err', '❌ ' + e.message);
   }
 }
 
 // ═══════════════════════════════════════════════════════════
-// 4. MAPPING ENGINE – Giữ nguyên logic hailong-v13
+// 4. MAPPING ENGINE – Giữ nguyên 100% hailong
 // ═══════════════════════════════════════════════════════════
 
-/**
- * Lấy value từ ExcelRow, áp dụng fallback và valueMap
- * Giữ nguyên logic của PlaywrightService.ts hailong
- */
-function hlGetFieldValue(row, field) {
-  let rawVal = row[field.excelColumn];
-
-  // Fallback column (ví dụ TUOI → NAM_SINH)
-  if ((rawVal === null || rawVal === undefined || rawVal === '') && field.fallbackColumn) {
-    rawVal = row[field.fallbackColumn];
-  }
-
-  // Default value nếu không có cột
-  if ((rawVal === null || rawVal === undefined || rawVal === '') && field.defaultValue !== undefined) {
-    return String(field.defaultValue);
-  }
-
-  if (rawVal === null || rawVal === undefined || rawVal === '') return null;
-
-  // ValueMap
-  if (field.valueMap && HL_VALUE_MAPPING[field.valueMap]) {
-    const map = HL_VALUE_MAPPING[field.valueMap];
-    const strVal = String(rawVal).trim();
-    if (map[strVal] !== undefined) return map[strVal];
-  }
-
-  return String(rawVal).trim();
-}
-
-/**
- * Chuyển serial date Excel hoặc string sang { day, month, year }
- * Port 100% từ PlaywrightService.ts hailong-v13 parseExcelDate()
- */
+/** parseExcelDate – port 100% từ PlaywrightService.ts hailong */
 function hlParseExcelDate(rawVal) {
   if (rawVal === null || rawVal === undefined || rawVal === '') return null;
-
   const serial = parseFloat(String(rawVal));
-  // Serial date Excel: phải > 40000 (tránh nhầm với số thường)
-  // Hailong: excelEpoch(1900-01-01) + (serial - 2) * msPerDay
   if (!isNaN(serial) && serial > 40000) {
-    const excelEpoch = new Date(1900, 0, 1);
-    const msPerDay   = 24 * 60 * 60 * 1000;
-    const date = new Date(excelEpoch.getTime() + (serial - 2) * msPerDay);
-    return { day: date.getDate().toString(), month: (date.getMonth() + 1).toString(), year: date.getFullYear().toString() };
+    const d = new Date(new Date(1900, 0, 1).getTime() + (serial - 2) * 86400000);
+    return { day: d.getDate().toString(), month: (d.getMonth()+1).toString(), year: d.getFullYear().toString() };
   }
-
-  // Regex giống hailong: DD/MM/YYYY, DD-MM-YYYY, YYYY/MM/DD, YYYY-MM-DD
-  const str = String(rawVal).trim();
-  const patterns = [
-    /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/,
-    /^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/,
-  ];
-  for (const pattern of patterns) {
-    const match = str.match(pattern);
-    if (match) {
-      if (match[3] && match[3].length === 4) {
-        return { day: parseInt(match[1]).toString(), month: parseInt(match[2]).toString(), year: match[3] };
-      } else {
-        return { day: parseInt(match[3]).toString(), month: parseInt(match[2]).toString(), year: match[1] };
-      }
-    }
-  }
-
+  const s = String(rawVal).trim();
+  const p1 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (p1) return { day: parseInt(p1[1]).toString(), month: parseInt(p1[2]).toString(), year: p1[3] };
+  const p2 = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (p2) return { day: parseInt(p2[3]).toString(), month: parseInt(p2[2]).toString(), year: p2[1] };
   return null;
 }
 
-/**
- * Lấy leading digit từ text (ví dụ "3. Tương xứng..." → "3")
- */
-function hlLeadingDigit(val) {
-  if (!val) return '';
-  const m = String(val).match(/^(\d+)/);
-  return m ? m[1] : String(val);
+/** Lấy giá trị field với fallback + valueMap – giống hailong fillSurvey() */
+function hlGetFieldValue(row, field) {
+  let val = row[field.excelColumn];
+  const isEmpty = v => v === null || v === undefined || String(v).trim() === '';
+  if (isEmpty(val) && field.fallbackColumn) val = row[field.fallbackColumn];
+  if (isEmpty(val) && field.defaultValue !== undefined) return String(field.defaultValue);
+  if (isEmpty(val)) return null;
+  const strVal = String(val).trim();
+  if (field.valueMap && HL_VALUE_MAPPING[field.valueMap]) {
+    const mapped = HL_VALUE_MAPPING[field.valueMap][strVal];
+    if (mapped !== undefined) return mapped;
+  }
+  return strVal;
 }
 
 // ═══════════════════════════════════════════════════════════
-// 5. INJECT SCRIPT BUILDER – Giữ nguyên 100% logic hailong
+// 5. INJECT SCRIPT BUILDER
+//    Tạo script JavaScript an toàn để eval() trong popup BYT
+//    Port sát PlaywrightService.ts: điền theo từng field type
 // ═══════════════════════════════════════════════════════════
 
-/**
- * Build inject script từ ExcelRow + Mapping
- * Script được eval() trong popup window của trang BYT
- */
 function hlBuildInjectScript(row, mapping) {
-  // Xây dựng danh sách fields đã được xử lý
-  const fieldActions = [];
-  let dateField = null;
+  const actions = [];
+  let dateInfo  = null;
 
   for (const field of mapping.fields) {
     const val = hlGetFieldValue(row, field);
-
     if (field.type === 'date_excel') {
-      const parsed = hlParseExcelDate(val !== null ? (row[field.excelColumn] || row[field.fallbackColumn]) : null);
-      dateField = { selector: field.selector, parsed };
+      const raw = row[field.excelColumn] ?? (field.fallbackColumn ? row[field.fallbackColumn] : null);
+      dateInfo = { selector: field.selector, parsed: hlParseExcelDate(raw) };
       continue;
     }
-
     if (val === null || val === undefined) continue;
-
-    fieldActions.push({ selector: field.selector, type: field.type, value: val });
+    actions.push({ s: field.selector, t: field.type, v: val });
   }
 
-  // Serialize để nhúng vào script string
-  const fieldsStr  = JSON.stringify(fieldActions);
-  const dateStr    = JSON.stringify(dateField);
+  // Dùng JSON.stringify để đảm bảo an toàn với mọi ký tự đặc biệt
+  const actionsJSON = JSON.stringify(actions);
+  const dateJSON    = JSON.stringify(dateInfo);
 
-  return `(function(){
-try {
-  var buildId = (document.querySelector('input[name="form_build_id"]') || {}).value || '';
-  if (!buildId) return { error: 'NO_BUILD_ID' };
+  // Script này sẽ được eval() trong context của trang BYT (hailong.chatluongbenhvien.vn)
+  // Không dùng template literal ở đây vì actionsJSON/dateJSON đã là string
+  return '(function(){\n'
+    + 'try {\n'
+    + '  var buildId = (document.querySelector(\'input[name="form_build_id"]\') || {}).value || "";\n'
+    + '  var actions = ' + actionsJSON + ';\n'
+    + '  var dateFld = ' + dateJSON + ';\n'
+    + '  var filled = 0, missing = [], reqEmpty = [];\n'
 
-  var fields  = ${fieldsStr};
-  var dateFld = ${dateStr};
-  var filled  = 0, missing = [], requiredEmpty = [];
+    // Helpers
+    + '  function fire(el) { ["input","change"].forEach(function(e){ el.dispatchEvent(new Event(e,{bubbles:true})); }); }\n'
+    + '  function sVal(sel,val) {\n'
+    + '    var e=document.querySelector(sel); if(!e) return false;\n'
+    + '    e.value=val; fire(e); return true;\n'
+    + '  }\n'
+    + '  function sRad(name,val) {\n'
+    + '    var e=document.querySelector(\'input[type="radio"][name="\'+name+\'"][value="\'+val+\'"]\');\n'
+    + '    if(!e) return false; e.checked=true; fire(e); return true;\n'
+    + '  }\n'
+    + '  function sRadFirst(name) {\n'
+    + '    var e=document.querySelector(\'input[type="radio"][name="\'+name+\'"]\');\n'
+    + '    if(e && !document.querySelector(\'input[type="radio"][name="\'+name+\'"]:checked\')){ e.checked=true; fire(e); return true; }\n'
+    + '    return false;\n'
+    + '  }\n'
+    + '  function normStr(s) {\n'
+    + '    return s.toLowerCase().replace(/^\\s*[\\d.]+\\s*-\\s*/,"").replace(/-/g," ").replace(/\\s+/g," ").trim();\n'
+    + '  }\n'
+    + '  function sSel(sel,val) {\n'
+    + '    var e=document.querySelector(sel); if(!e||!val) return false;\n'
+    + '    // Tầng 1: exact value\n'
+    + '    if(Array.from(e.options||[]).some(function(o){return o.value===val;})){e.value=val;fire(e);return true;}\n'
+    + '    // Tầng 2: exact text\n'
+    + '    var o2=Array.from(e.options||[]).find(function(o){return o.text.trim()===val;});\n'
+    + '    if(o2){e.value=o2.value;fire(e);return true;}\n'
+    + '    // Tầng 3: fuzzy norm (bỏ mã số đứng đầu như "62310 - ")\n'
+    + '    var t=normStr(val), found=false;\n'
+    + '    Array.from(e.options||[]).forEach(function(o){\n'
+    + '      if(found)return; var ot=normStr(o.text);\n'
+    + '      if(ot.indexOf(t)>=0||t.indexOf(ot)>=0||o.value===val){e.value=o.value;found=true;}\n'
+    + '    });\n'
+    + '    if(found){fire(e);return true;}\n'
+    + '    return false;\n'
+    + '  }\n'
 
-  // ── HELPER FUNCTIONS ──
-  function sVal(sel, val) {
-    var e = document.querySelector(sel);
-    if (e) { e.value = val; e.dispatchEvent(new Event('change', {bubbles:true})); return true; }
-    return false;
-  }
-  function sRad(name, val) {
-    var e = document.querySelector('input[type="radio"][name="' + name + '"][value="' + val + '"]');
-    if (e) { e.checked = true; e.dispatchEvent(new Event('change', {bubbles:true})); return true; }
-    return false;
-  }
-  function sRadFirst(name) {
-    var e = document.querySelector('input[type="radio"][name="' + name + '"]');
-    if (e && !document.querySelector('input[type="radio"][name="' + name + '"]:checked')) {
-      e.checked = true; e.dispatchEvent(new Event('change', {bubbles:true})); return true;
-    }
-    return false;
-  }
-  function selectByText(sel, txt) {
-    var e = document.querySelector(sel);
-    if (!e) return false;
-    // norm() giống hailong: bỏ mã số đứng đầu "62310 - ", thay - thành space
-    function norm(s) {
-      return s.toLowerCase()
-        .replace(/^\s*[\d.]+\s*-\s*/, '')
-        .replace(/-/g, ' ')
-        .replace(/\s+/g, ' ').trim();
-    }
-    var target = norm(txt);
-    var found = false;
-    Array.from(e.options || []).forEach(function(opt) {
-      if (found) return;
-      var optText = norm(opt.text);
-      if (optText.indexOf(target) >= 0 || target.indexOf(optText) >= 0 || opt.value === txt) {
-        e.value = opt.value; found = true;
-      }
-    });
-    if (found) e.dispatchEvent(new Event('change', {bubbles:true}));
-    return found;
-  }
+    // Bước 1: Điền tất cả fields theo type
+    + '  actions.forEach(function(a){\n'
+    + '    var t=a.t, sel=a.s, val=String(a.v), ok=false;\n'
+    + '    if(t==="text"){ ok=sVal(sel,val); }\n'
+    + '    else if(t==="text_name"){ ok=sVal(\'input[name="\'+sel+\'"]\',val)||sVal(\'textarea[name="\'+sel+\'"]\',val); }\n'
+    + '    else if(t==="select"){ ok=sSel(sel,val); }\n'
+    + '    else if(t==="radio"||t==="radio_name"){ ok=sRad(sel,val); if(!ok)sRadFirst(sel); }\n'
+    + '    else if(t==="radio_score"){\n'
+    + '      var n=parseInt(val,10); if(!isNaN(n)){ ok=sRad(sel,String(n)); }\n'
+    + '    }\n'
+    + '    else if(t==="radio_leading_digit"){\n'
+    + '      var m=val.match(/^\\s*(\\d+)/); ok=sRad(sel,m?m[1]:"select_or_other");\n'
+    + '    }\n'
+    + '    if(ok) filled++; else missing.push(sel+"="+val);\n'
+    + '  });\n'
 
-  // ════════════════════════════════════════
-  // BƯỚC 1: ĐIỀN TẤT CẢ FIELDS TỪ MAPPING
-  // ════════════════════════════════════════
-  fields.forEach(function(f) {
-    var t = f.type, sel = f.selector, val = String(f.value);
-    var ok = false;
+    // Bước 2: Ngày tháng
+    + '  if(dateFld&&dateFld.parsed){\n'
+    + '    var dp=dateFld.parsed, bs=dateFld.selector;\n'
+    + '    ["select[name=\\"submitted[ttp][bvn][ngay_dien_phieu][day]\\"]",\n'
+    + '     "select[name=\\""+bs+"[day]\\"]"].forEach(function(s){sVal(s,dp.day);});\n'
+    + '    ["select[name=\\"submitted[ttp][bvn][ngay_dien_phieu][month]\\"]",\n'
+    + '     "select[name=\\""+bs+"[month]\\"]"].forEach(function(s){sVal(s,dp.month);});\n'
+    + '    ["select[name=\\"submitted[ttp][bvn][ngay_dien_phieu][year]\\"]",\n'
+    + '     "select[name=\\""+bs+"[year]\\"]"].forEach(function(s){sVal(s,dp.year);});\n'
+    + '  }\n'
 
-    if (t === 'text') {
-      ok = sVal(sel, val);
-      if (!ok) missing.push(sel + '=' + val);
-      else filled++;
+    // Bước 3: Required fields mặc định
+    + '  var kks=document.querySelector(\'select[name="submitted[kieu_khao_sat]"]\');\n'
+    + '  if(kks&&!kks.value){kks.value="1";fire(kks);}\n'
+    + '  sVal(\'select[name="submitted[guibyt]"]\',"1");\n'
+    + '  var npv=document.querySelector(\'select[name="submitted[ttp][mdt][nguoipv]"]\');\n'
+    + '  if(npv&&!npv.value){npv.value="2";fire(npv);}\n'
+    + '  var dtt=document.querySelector(\'select[name="submitted[ttp][mdt][doituong]"]\');\n'
+    + '  if(dtt&&!dtt.value){dtt.value="1";fire(dtt);}\n'
+    + '  ["submitted[thong_tin_nguoi_dien_phieu][5]","submitted[thong_tin_nguoi_dien_phieu][6]",\n'
+    + '   "submitted[thong_tin_nguoi_dien_phieu][7]"].forEach(function(n){\n'
+    + '    if(!document.querySelector(\'input[type="radio"][name="\'+n+\'"]:checked\'))sRadFirst(n);\n'
+    + '  });\n'
+    + '  var tf8=document.querySelector(\'input[name="submitted[thong_tin_nguoi_dien_phieu][8]"]\');\n'
+    + '  if(tf8&&!tf8.value)tf8.value="Không";\n'
+    + '  var kc=document.querySelector(\'input[name="submitted[thong_tin_nguoi_dien_phieu][khoangcach]"]\');\n'
+    + '  if(kc&&!kc.value)kc.value="1";\n'
 
-    } else if (t === 'text_name') {
-      // text_name: input[name="selector"]
-      ok = sVal('input[name="' + sel + '"]', val);
-      if (!ok) ok = sVal('textarea[name="' + sel + '"]', val);
-      if (!ok) missing.push(sel + '=' + val); else filled++;
+    // Bước 4: Kiểm tra required (giống hailong verifyBeforeSubmit)
+    + '  var rg={};\n'
+    + '  document.querySelectorAll("select[required],input[required][type!=\'radio\'],textarea[required]").forEach(function(el){\n'
+    + '    if(!el.value||el.value==="")reqEmpty.push(el.name||"?");\n'
+    + '  });\n'
+    + '  document.querySelectorAll(\'input[type="radio"][required]\').forEach(function(el){\n'
+    + '    rg[el.name]=rg[el.name]||[]; rg[el.name].push(el);\n'
+    + '  });\n'
+    + '  Object.keys(rg).forEach(function(n){\n'
+    + '    if(!rg[n].some(function(e){return e.checked;}))reqEmpty.push("radio:"+n);\n'
+    + '  });\n'
 
-    } else if (t === 'select') {
-      var e = document.querySelector(sel);
-      if (e && val) {
-        // Tầng 1: exact value match
-        if (Array.from(e.options||[]).some(function(o){ return o.value===val; })) {
-          e.value = val; e.dispatchEvent(new Event('change',{bubbles:true})); ok=true;
-        }
-        // Tầng 2: exact label match (giống hailong selectOption label)
-        if (!ok) {
-          var optByLabel = Array.from(e.options||[]).find(function(o){ return o.text.trim()===val; });
-          if (optByLabel) { e.value=optByLabel.value; e.dispatchEvent(new Event('change',{bubbles:true})); ok=true; }
-        }
-        // Tầng 3: fuzzy text match với norm() giống hailong
-        // norm(): toLowerCase, bỏ mã số đầu "62310 - ", thay - thành khoảng trắng
-        if (!ok) ok = selectByText(sel, val);
-        if (ok) filled++; else missing.push(sel + '=' + val);
-      }
+    // Bước 5: Submit sau 1.5s
+    + '  setTimeout(function(){\n'
+    + '    var sels=["input[name=\'op\'][value=\'Gửi đi\']","input[type=\'submit\'][value=\'Gửi đi\']",\n'
+    + '              "input.webform-submit","input.form-submit","input[type=\'submit\'][value=\'Gửi\']",\n'
+    + '              "input[type=\'submit\'][value=\'Gửi phiếu\']","input#edit-actions-submit",\n'
+    + '              "input#edit-submit-1","input#edit-submit","button[type=\'submit\']","input[type=\'submit\']"];\n'
+    + '    var clicked=false;\n'
+    + '    for(var i=0;i<sels.length;i++){\n'
+    + '      var b=document.querySelector(sels[i]);\n'
+    + '      if(b&&b.offsetParent!==null&&!b.disabled){b.click();clicked=true;break;}\n'
+    + '    }\n'
+    + '    if(!clicked){\n'
+    + '      var cands=[document.querySelector("input[type=\'submit\']"),\n'
+    + '                 document.querySelector("button[type=\'submit\']"),\n'
+    + '                 document.querySelector("#edit-actions-submit")].filter(Boolean);\n'
+    + '      if(cands.length){cands[0].click();clicked=true;}\n'
+    + '    }\n'
+    + '    console.log("[KSHL-HL] Submit clicked="+clicked+" filled="+' + 'filled + " missing="+missing.length);\n'
+    + '  },1500);\n'
 
-    } else if (t === 'radio') {
-      ok = sRad(sel, val);
-      if (!ok) sRadFirst(sel);
-      if (ok) filled++; else missing.push(sel + '=' + val);
-
-    } else if (t === 'radio_name') {
-      ok = sRad(sel, val);
-      if (!ok) sRadFirst(sel);
-      if (ok) filled++; else missing.push(sel + '=' + val);
-
-    } else if (t === 'radio_score') {
-      // parseInt trước khi so sánh (giống hailong)
-      var scoreInt = parseInt(val, 10);
-      if (!isNaN(scoreInt)) {
-        ok = sRad(sel, String(scoreInt));
-        if (ok) filled++; else missing.push(sel + '=' + scoreInt);
-      }
-
-    } else if (t === 'radio_leading_digit') {
-      // Lấy digit đầu; nếu không có số → 'select_or_other' (giống hailong)
-      var m2 = val.match(/^\s*(\d+)/);
-      var digit = m2 ? m2[1] : 'select_or_other';
-      ok = sRad(sel, digit);
-      if (ok) filled++; else missing.push(sel + '=' + digit);
-    }
-  });
-
-  // ════════════════════════════════════════
-  // BƯỚC 2: ĐIỀN NGÀY THÁNG (date_excel)
-  // ════════════════════════════════════════
-  if (dateFld && dateFld.parsed) {
-    var dp = dateFld.parsed, baseSel = dateFld.selector;
-    // Thử selector dạng submitted[ttp][bvn][ngay_dien_phieu]
-    var daySelectors = [
-      'select[name="' + baseSel + '[day]"]',
-      'select[name="submitted[ttp][bvn][ngay_dien_phieu][day]"]'
-    ];
-    var monthSelectors = [
-      'select[name="' + baseSel + '[month]"]',
-      'select[name="submitted[ttp][bvn][ngay_dien_phieu][month]"]'
-    ];
-    var yearSelectors = [
-      'select[name="' + baseSel + '[year]"]',
-      'select[name="submitted[ttp][bvn][ngay_dien_phieu][year]"]'
-    ];
-    daySelectors.forEach(function(s){ sVal(s, dp.day); });
-    monthSelectors.forEach(function(s){ sVal(s, dp.month); });
-    yearSelectors.forEach(function(s){ sVal(s, dp.year); });
-  }
-
-  // ════════════════════════════════════════
-  // BƯỚC 3: CÁC FIELD REQUIRED MẶC ĐỊNH
-  // (giữ nguyên logic hailong)
-  // ════════════════════════════════════════
-
-  // Đảm bảo kieu_khao_sat có giá trị
-  var kks = document.querySelector('select[name="submitted[kieu_khao_sat]"]');
-  if (kks && (!kks.value || kks.value === '')) {
-    kks.value = '1'; kks.dispatchEvent(new Event('change', {bubbles:true}));
-  }
-
-  // guibyt
-  sVal('select[name="submitted[guibyt]"]', '1');
-
-  // M1/M2: nguoipv - nếu chưa điền thì chọn mặc định
-  var npv = document.querySelector('select[name="submitted[ttp][mdt][nguoipv]"]');
-  if (npv && !npv.value) { npv.value = '2'; npv.dispatchEvent(new Event('change',{bubbles:true})); }
-
-  // M1/M2: doituong
-  var dt = document.querySelector('select[name="submitted[ttp][mdt][doituong]"]');
-  if (dt && !dt.value) { dt.value = '1'; dt.dispatchEvent(new Event('change',{bubbles:true})); }
-
-  // M1: thong_tin[5],[6],[7] required
-  ['submitted[thong_tin_nguoi_dien_phieu][5]',
-   'submitted[thong_tin_nguoi_dien_phieu][6]',
-   'submitted[thong_tin_nguoi_dien_phieu][7]'].forEach(function(name){
-    if (!document.querySelector('input[type="radio"][name="' + name + '"]:checked')) sRadFirst(name);
-  });
-
-  // M1: text [8]
-  var tf8 = document.querySelector('input[name="submitted[thong_tin_nguoi_dien_phieu][8]"]');
-  if (tf8 && !tf8.value) tf8.value = 'Không';
-
-  // M2: khoangcach
-  var kc = document.querySelector('input[name="submitted[thong_tin_nguoi_dien_phieu][khoangcach]"]');
-  if (kc && !kc.value) kc.value = '1';
-
-  // ════════════════════════════════════════
-  // BƯỚC 4: KIỂM TRA REQUIRED TRƯỚC KHI GỬI
-  // ════════════════════════════════════════
-  var radioGroups = {};
-  document.querySelectorAll('select[required],input[required][type!="radio"],textarea[required]').forEach(function(el){
-    if (!el.value || el.value === '') requiredEmpty.push(el.name || el.id || '?');
-  });
-  document.querySelectorAll('input[type="radio"][required]').forEach(function(el){
-    radioGroups[el.name] = radioGroups[el.name] || [];
-    radioGroups[el.name].push(el);
-  });
-  Object.keys(radioGroups).forEach(function(n){
-    if (!radioGroups[n].some(function(el){ return el.checked; })) requiredEmpty.push('radio:' + n);
-  });
-
-  // ════════════════════════════════════════
-  // BƯỚC 5: SUBMIT
-  // ════════════════════════════════════════
-  setTimeout(function(){
-    // Thử tất cả selectors theo thứ tự ưu tiên giống hailong-v13
-    var submitSelectors = [
-      'input[name="op"][value="Gửi đi"]',
-      'input[type="submit"][value="Gửi đi"]',
-      'input.webform-submit',
-      'input.form-submit',
-      'input[type="submit"][value="Gửi"]',
-      'input[type="submit"][value="Gửi phiếu"]',
-      'input[type="submit"][value="Submit"]',
-      'input#edit-actions-submit',
-      'input#edit-submit-1',
-      'input#edit-submit',
-      'button[type="submit"]',
-      'input[type="submit"]'
-    ];
-    var clicked = false;
-    for (var i = 0; i < submitSelectors.length; i++) {
-      var btn = document.querySelector(submitSelectors[i]);
-      if (btn && btn.offsetParent !== null && !btn.disabled) {
-        btn.click();
-        clicked = true;
-        break;
-      }
-    }
-    // JS click fallback (giống hailong)
-    if (!clicked) {
-      var candidates = [
-        document.querySelector('input[type="submit"]'),
-        document.querySelector('button[type="submit"]'),
-        document.querySelector('#edit-actions-submit'),
-        document.querySelector('#edit-submit')
-      ].filter(Boolean);
-      if (candidates.length > 0) { candidates[0].click(); clicked = true; }
-    }
-    if (!clicked) console.warn('[KSHL-HL] Không tìm thấy nút Submit');
-  }, 1200);
-
-  return {
-    ok: true,
-    filled: filled,
-    missing: missing.join(', '),
-    requiredEmpty: requiredEmpty.length,
-    requiredList: requiredEmpty.slice(0, 8).join(' | '),
-    buildId: buildId.substring(0, 12)
-  };
-} catch(err) {
-  return { error: err.message };
-}
-})()`;
+    + '  return {ok:true,filled:filled,missing:missing.join("|").substring(0,200),\n'
+    + '          reqEmpty:reqEmpty.length,reqList:reqEmpty.slice(0,5).join("|"),\n'
+    + '          hasToken:!!buildId};\n'
+    + '} catch(err){ return {error:err.message}; }\n'
+    + '})()';
 }
 
 // ═══════════════════════════════════════════════════════════
-// 6. POPUP UPLOADER – Giữ nguyên 100% logic hailong Playwright
+// 6. POPUP UPLOADER
+//    Cơ chế giống byt.js gốc (đang hoạt động tốt):
+//    window.open → setInterval kiểm tra load → win.eval() inject
+//    Khác biệt: dùng mapping của hailong thay vì answers[]
 // ═══════════════════════════════════════════════════════════
 
-const HL_BYT_BASE = 'https://hailong.chatluongbenhvien.vn';
-const HL_LOAD_TIMEOUT_MS = 60000; // Tăng lên 60s vì trang BYT có thể load lâu 40-45s
+const HL_LOAD_TIMEOUT_MS = 60000; // 60s vì trang BYT load chậm ~40s
 
-/**
- * Submit một ExcelRow lên trang BYT qua popup window
- * Giống submitBYTViaPopup trong hailong
- */
 function hlSubmitViaPopup(row, mapping) {
   return new Promise((resolve) => {
-    const pageUrl = mapping.url;
-    // Tên window cố định per-phiếu để tránh mở quá nhiều tab
-    const winName = 'hl_byt_' + (Date.now() % 100000);
-    const win = window.open(pageUrl, winName, 'width=1100,height=800,left=50,top=40');
+    const pageUrl      = mapping.url;
+    const injectScript = hlBuildInjectScript(row, mapping);
+    const winName      = 'hl_byt_' + Math.floor(Date.now() / 1000 % 100000);
+    const win = window.open(pageUrl, winName, 'width=1100,height=820,left=50,top=30');
     if (!win) {
-      resolve({ ok: false, msg: 'Popup bị chặn – hãy cho phép popup trong trình duyệt' });
+      resolve({ ok: false, msg: 'Popup bị chặn – cho phép popup và thử lại' });
       return;
     }
 
-    const injectScript = hlBuildInjectScript(row, mapping);
     let attempts = 0, injected = false, submitted = false;
     const maxAttempts = Math.ceil(HL_LOAD_TIMEOUT_MS / 500);
 
@@ -734,21 +531,28 @@ function hlSubmitViaPopup(row, mapping) {
       try {
         if (win.closed) {
           clearInterval(iv);
-          if (!submitted) resolve({ ok: false, msg: 'Cửa sổ bị đóng trước khi hoàn tất' });
+          if (!submitted) resolve({ ok: false, msg: 'Cửa sổ đóng trước khi hoàn tất' });
           return;
         }
 
+        // Thử đọc URL và readyState – có thể throw khi cross-origin đang navigate
         let curUrl = '', ready = false;
-        try { curUrl = win.location.href || ''; ready = win.document.readyState === 'complete'; }
-        catch(xe) {
-          // Cross-origin = đã submit và redirect thành công
+        try {
+          curUrl = win.location.href || '';
+          ready  = win.document.readyState === 'complete';
+        } catch(xe) {
+          // Cross-origin SecurityError trong khi đang navigate → chờ
           if (injected && !submitted) {
+            // Sau inject → cross-origin = đã submit và redirect
             clearInterval(iv); submitted = true;
             setTimeout(() => { try { win.close(); } catch(x){} }, 600);
-            resolve({ ok: true, msg: '✅ Gửi thành công (cross-origin redirect)' });
+            resolve({ ok: true, msg: '✅ Gửi thành công (redirect)' });
           }
           return;
         }
+
+        // Bỏ qua about:blank
+        if (!curUrl || curUrl === 'about:blank') return;
 
         // Phát hiện trang login
         let isLoginPage = false;
@@ -756,227 +560,224 @@ function hlSubmitViaPopup(row, mapping) {
           isLoginPage = curUrl.includes('/user/login') || curUrl.includes('/user?destination')
             || (ready && !!(win.document.querySelector('#edit-name[name="name"]')
                         || win.document.querySelector('input[name="pass"]')));
-        } catch(le) {}
+        } catch(e) {}
 
         if (ready && isLoginPage && !injected) {
-          clearInterval(iv);
-          try { win.close(); } catch(x) {}
+          clearInterval(iv); try { win.close(); } catch(x) {}
           resolve({ ok: false, msg: 'CHƯA_ĐĂNG_NHẬP' });
           return;
         }
 
-        // Kiểm tra webform đã load – nhiều cách detect để chắc chắn
+        // Log tiến trình mỗi 5 giây
+        if (!injected && attempts % 10 === 0) {
+          hlAddLog('info', `⏳ Đang chờ form BYT load... ${Math.round(attempts*0.5)}s | ${curUrl.split('/').pop() || 'loading'}`);
+        }
+
+        // Kiểm tra webform sẵn sàng
         if (ready && !injected && !isLoginPage) {
-          let hasWebform = false;
+          let hasForm = false;
           try {
-            hasWebform = !!(
-              win.document.querySelector('form[id^="webform-client-form"]') ||
-              win.document.querySelector('form.webform-client-form') ||
-              win.document.querySelector('form[class*="webform"]') ||
-              // Fallback: nếu URL đúng là trang survey và page đã load → cứ inject
-              (curUrl.includes('nguoi-benh') && win.document.querySelector('input[name="form_build_id"]')) ||
-              win.document.querySelector('input[name="form_build_id"]') // có form_build_id là webform
-            );
-          } catch(we) {}
+            // Ưu tiên form_build_id – có trong MỌI Drupal webform khi đã render xong
+            const buildIdEl = win.document.querySelector('input[name="form_build_id"]');
+            hasForm = !!(buildIdEl && buildIdEl.value);
+            if (!hasForm) {
+              // Fallback: tìm form webform
+              hasForm = !!(win.document.querySelector('form[id^="webform-client-form"]')
+                       || win.document.querySelector('form.webform-client-form')
+                       || win.document.querySelector('form[class*="webform"]'));
+            }
+          } catch(e) {}
 
-          if (!hasWebform) {
-            // Log mỗi 5s để dễ debug
-            if (attempts % 10 === 0) hlAddLog('info', `⏳ Chờ webform... (${(attempts*0.5).toFixed(0)}s) URL: ${curUrl.split('/').pop()}`);
-            return; // chờ thêm
-          }
+          if (!hasForm) return;
 
+          // Delay 500ms sau khi detect để Drupal AJAX hoàn tất render
           injected = true;
-          hlAddLog('info', `📄 Webform sẵn sàng (${curUrl.split('/').pop()}) – bắt đầu điền...`);
+          hlAddLog('info', `📄 Form sẵn sàng (${Math.round(attempts*0.5)}s) – đang điền dữ liệu...`);
 
-          try {
-            // Thử win.eval() trước, nếu CSP chặn thì dùng script injection
-            let result = null;
-            let evalOk = false;
+          setTimeout(() => {
             try {
-              result = win.eval(injectScript);
-              evalOk = true;
-            } catch(evalErr) {
-              hlAddLog('warn', '⚠️ eval() bị chặn, thử script injection...');
-              // Inject qua script tag (bypass một số CSP restrictions)
-              try {
-                const scriptEl = win.document.createElement('script');
-                // Wrap để lấy return value qua window.__hlResult
-                scriptEl.textContent = 'window.__hlResult = (function(){ ' + injectScript.replace(/^\(function\(\)\{/, '').replace(/\}\)\(\)\s*$/, '') + '})();';
-                win.document.head.appendChild(scriptEl);
-                result = win.__hlResult || { ok: true, filled: 0, missing: 'via-script-inject' };
-                evalOk = true;
-              } catch(scriptErr) {
-                hlAddLog('warn', '⚠️ Script injection cũng thất bại: ' + scriptErr.message);
-              }
-            }
+              let result = null;
 
-            if (!evalOk || !result) {
-              hlAddLog('warn', '⚠️ Không thể inject script – form sẽ trống. Kiểm tra popup thủ công.');
-            } else if (result && result.error === 'NO_BUILD_ID') {
-              clearInterval(iv); try { win.close(); } catch(x) {}
-              resolve({ ok: false, msg: 'CHƯA_ĐĂNG_NHẬP – không lấy được form token' });
-              return;
-            } else if (result && result.error) {
-              hlAddLog('warn', '⚠️ Lỗi inject: ' + result.error);
-            } else if (result && result.ok) {
-              const reqInfo = result.requiredEmpty > 0
-                ? ` | ⚠️ ${result.requiredEmpty} trường required còn trống: ${result.requiredList}` : '';
-              hlAddLog('info',
-                `✏️ Đã điền ${result.filled} fields` +
-                (result.missing ? ` | Thiếu: ${result.missing}` : ' | Đủ tất cả') + reqInfo
-              );
-            }
-
-            // Chờ submit và xác nhận
-            let waitAtt = 0;
-            const waitIv = setInterval(() => {
-              waitAtt++;
+              // Thử eval() trực tiếp
               try {
-                if (win.closed) {
-                  clearInterval(waitIv); clearInterval(iv); submitted = true;
-                  resolve({ ok: true, msg: '✅ Gửi thành công' });
+                result = win.eval(injectScript);
+              } catch(evalErr) {
+                hlAddLog('warn', '⚠️ eval() lỗi: ' + evalErr.message + ' – thử script tag...');
+                // Fallback: inject qua script tag
+                try {
+                  const sc = win.document.createElement('script');
+                  sc.id = '__hl_inject';
+                  sc.textContent = 'window.__hlResult=' + injectScript + ';';
+                  win.document.body.appendChild(sc);
+                  result = win.__hlResult || { ok: false, error: 'script-tag-no-result' };
+                } catch(se) {
+                  hlAddLog('err', '❌ Script inject thất bại: ' + se.message);
+                  clearInterval(iv); try { win.close(); } catch(x){}
+                  resolve({ ok: false, msg: 'INJECT_FAILED: ' + se.message });
                   return;
                 }
-                const newUrl  = win.location.href || '';
-                const content = win.document.body ? win.document.body.innerHTML : '';
-                // Giống hailong verifySuccess() - KHÔNG dùng 'cảm ơn' vì nó có SẴN trong form chưa gửi
-                const hasConfirmationText = (
-                  content.includes('CHÚNG TÔI ĐÃ NHẬN ĐƯỢC ĐÁNH GIÁ TỪ BẠN') ||
-                  content.includes('chúng tôi đã nhận được đánh giá từ bạn') ||
-                  content.includes('CẢM ƠN BẠN! CHÚNG TÔI')
-                );
-                // URL dạng /node/NNNN/done?sid=... → xác nhận Drupal webform đã gửi thành công
-                const isOnDoneUrl = /\/node\/\d+\/done(\?|$)/.test(newUrl);
-                // Nếu nút Submit vẫn còn → form chưa thực sự submit (bị chặn bởi required validation)
-                var submitStillPresent = false;
-                try { submitStillPresent = !!win.document.querySelector('input[name="op"][value="Gửi đi"]'); } catch(e2){}
-                const isOk = (hasConfirmationText || isOnDoneUrl) && !submitStillPresent;
-                if (isOk) {
-                  clearInterval(waitIv); clearInterval(iv); submitted = true;
-                  setTimeout(() => { try { win.close(); } catch(x){} }, 1200);
-                  resolve({ ok: true, msg: '✅ Gửi thành công – BYT xác nhận (url: ' + newUrl.split('/').pop() + ')' });
-                }
-              } catch(ce) {
-                clearInterval(waitIv); clearInterval(iv); submitted = true;
-                setTimeout(() => { try { win.close(); } catch(x){} }, 600);
-                resolve({ ok: true, msg: '✅ Gửi thành công (cross-origin confirm)' });
               }
-              if (waitAtt > 30) {
-                clearInterval(waitIv); clearInterval(iv); submitted = true;
-                setTimeout(() => { try { win.close(); } catch(x){} }, 400);
-                resolve({ ok: true, msg: 'Gửi xong – không nhận được xác nhận rõ ràng' });
-              }
-            }, 1000);
 
-          } catch(domErr) {
-            clearInterval(iv);
-            try { win.close(); } catch(x) {}
-            resolve({ ok: false, msg: 'CHƯA_ĐĂNG_NHẬP – không đọc được DOM: ' + domErr.message });
-          }
+              if (!result) {
+                hlAddLog('warn', '⚠️ Inject không trả về kết quả');
+                clearInterval(iv); try { win.close(); } catch(x){}
+                resolve({ ok: false, msg: 'INJECT_NO_RESULT' });
+                return;
+              }
+
+              if (result.error === 'NO_BUILD_ID') {
+                // form_build_id chưa có → form chưa render xong → retry sau 2s
+                hlAddLog('warn', '⚠️ form_build_id chưa có, thử lại sau 2s...');
+                injected = false; // reset để interval tiếp tục chờ
+                setTimeout(() => { injected = false; }, 100);
+                return;
+              }
+
+              if (result.error) {
+                hlAddLog('err', '❌ Lỗi inject: ' + result.error);
+                clearInterval(iv); try { win.close(); } catch(x){}
+                resolve({ ok: false, msg: 'INJECT_ERROR: ' + result.error });
+                return;
+              }
+
+              // Inject thành công
+              const reqInfo = result.reqEmpty > 0 ? ` | ⚠️ ${result.reqEmpty} required trống: ${result.reqList}` : '';
+              hlAddLog('info', `✏️ Điền ${result.filled} fields${result.missing ? ' | Thiếu: '+result.missing : ' | Đủ'}${reqInfo}`);
+
+              // Chờ submit & xác nhận
+              let waitAtt = 0;
+              const waitIv = setInterval(() => {
+                waitAtt++;
+                try {
+                  if (win.closed) {
+                    clearInterval(waitIv); clearInterval(iv); submitted = true;
+                    resolve({ ok: true, msg: '✅ Gửi thành công' });
+                    return;
+                  }
+                  const newUrl = win.location.href || '';
+                  const html   = win.document.body ? win.document.body.innerHTML : '';
+                  // Giống hailong verifySuccess(): chuỗi đặc trưng trang xác nhận Drupal
+                  const hasConf = html.includes('CHÚNG TÔI ĐÃ NHẬN ĐƯỢC ĐÁNH GIÁ TỪ BẠN')
+                                || html.includes('chúng tôi đã nhận được đánh giá từ bạn')
+                                || html.includes('CẢM ƠN BẠN! CHÚNG TÔI');
+                  const isDoneUrl = /\/node\/\d+\/done(\?|$)/.test(newUrl);
+                  // Submit button còn = form CHƯA submit thực sự
+                  let submitStill = false;
+                  try { submitStill = !!win.document.querySelector('input[name="op"][value="Gửi đi"]'); } catch(e){}
+                  if ((hasConf || isDoneUrl) && !submitStill) {
+                    clearInterval(waitIv); clearInterval(iv); submitted = true;
+                    setTimeout(() => { try { win.close(); } catch(x){} }, 1500);
+                    resolve({ ok: true, msg: '✅ Gửi thành công – BYT xác nhận' });
+                  }
+                } catch(ce) {
+                  // Cross-origin sau submit = thành công
+                  clearInterval(waitIv); clearInterval(iv); submitted = true;
+                  setTimeout(() => { try { win.close(); } catch(x){} }, 600);
+                  resolve({ ok: true, msg: '✅ Gửi thành công (xác nhận cross-origin)' });
+                }
+                if (waitAtt > 30) {
+                  clearInterval(waitIv); clearInterval(iv); submitted = true;
+                  setTimeout(() => { try { win.close(); } catch(x){} }, 400);
+                  resolve({ ok: true, msg: 'Gửi xong (không nhận xác nhận rõ)' });
+                }
+              }, 1000);
+
+            } catch(domErr) {
+              clearInterval(iv); try { win.close(); } catch(x){}
+              resolve({ ok: false, msg: 'DOM_ERR: ' + domErr.message });
+            }
+          }, 800); // delay 800ms sau detect để AJAX hoàn tất
         }
 
       } catch(outerErr) {
         if (injected && !submitted) {
           clearInterval(iv); submitted = true;
           setTimeout(() => { try { win.close(); } catch(x){} }, 400);
-          resolve({ ok: true, msg: '✅ Gửi thành công (cross-origin outer)' });
+          resolve({ ok: true, msg: '✅ Gửi thành công (outer)' });
         }
       }
 
-      if (attempts > maxAttempts) {
-        clearInterval(iv);
-        if (!submitted) {
-          try { win.close(); } catch(x) {}
-          resolve({ ok: false, msg: `Timeout ${HL_LOAD_TIMEOUT_MS / 1000}s – trang BYT không phản hồi. Kiểm tra đăng nhập.` });
-        }
+      if (attempts > maxAttempts && !submitted) {
+        clearInterval(iv); try { win.close(); } catch(x){}
+        resolve({ ok: false, msg: `Timeout ${HL_LOAD_TIMEOUT_MS/1000}s – trang BYT không phản hồi. Kiểm tra đăng nhập và thử lại.` });
       }
     }, 500);
   });
 }
 
 // ═══════════════════════════════════════════════════════════
-// 7. STATE & LOG
+// 7. STATE & LOGGING
 // ═══════════════════════════════════════════════════════════
 
 let hlUploadRunning = false;
-let hlLog           = [];
+let hlLog = [];
 
 function hlAddLog(type, msg) {
   const el = document.getElementById('hl-upload-log');
   if (!el) return;
   const ts  = new Date().toLocaleTimeString('vi-VN');
-  const cls = type === 'ok' ? 'log-ok' : type === 'err' ? 'log-err' : type === 'warn' ? 'log-warn' : 'log-info';
-  const pre = type === 'ok' ? '✅' : type === 'err' ? '❌' : type === 'warn' ? '⚠️' : 'ℹ️';
-  el.innerHTML += `<div class="${cls}">[${ts}] ${pre} ${msg}</div>`;
+  const cls = type==='ok'?'log-ok':type==='err'?'log-err':type==='warn'?'log-warn':'log-info';
+  const ico = type==='ok'?'✅':type==='err'?'❌':type==='warn'?'⚠️':'ℹ️';
+  el.innerHTML += `<div class="${cls}">[${ts}] ${ico} ${msg}</div>`;
   el.scrollTop = el.scrollHeight;
   hlLog.push({ ts, type, msg });
 }
-
 function hlClearLog() {
   const el = document.getElementById('hl-upload-log');
   if (el) el.innerHTML = '';
   hlLog = [];
 }
-
 function hlSetProgress(cur, total) {
-  const el = document.getElementById('hl-progress-fill');
-  if (el) el.style.width = total > 0 ? `${Math.round(cur / total * 100)}%` : '0%';
-  const ct = document.getElementById('hl-progress-count');
-  if (ct) ct.textContent = `${cur} / ${total}`;
+  const fill = document.getElementById('hl-progress-fill');
+  const count = document.getElementById('hl-progress-count');
+  if (fill)  fill.style.width  = total > 0 ? `${Math.round(cur/total*100)}%` : '0%';
+  if (count) count.textContent = `${cur} / ${total}`;
 }
+function hlSleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ═══════════════════════════════════════════════════════════
-// 8. UPLOAD ENGINE CHÍNH – 2 NGUỒN DỮ LIỆU
+// 8. UPLOAD ENGINE CHÍNH
 // ═══════════════════════════════════════════════════════════
 
-/**
- * Upload từ File Excel (.xlsx)
- */
 async function hlUploadFromExcel(file) {
   if (!CFG.bytuser || !CFG.bytpass) {
-    toast('⚠️ Chưa cấu hình tài khoản BYT. Vào Cấu hình → Tài khoản BYT.', 'warning');
-    return;
+    toast('⚠️ Chưa cấu hình tài khoản BYT. Vào Cấu hình → Tài khoản BYT.', 'warning'); return;
   }
   if (hlUploadRunning) { toast('Đang chạy, vui lòng chờ...', 'info'); return; }
+  if (typeof XLSX === 'undefined') {
+    toast('❌ SheetJS chưa load. Kiểm tra kết nối mạng và tải lại trang.', 'error'); return;
+  }
 
-  const logCard = document.getElementById('hl-log-card');
-  if (logCard) logCard.style.display = '';
-  hlClearLog();
-  hlUploadRunning = true;
+  document.getElementById('hl-log-card').style.display = '';
+  document.getElementById('hl-progress-card').style.display = '';
+  hlClearLog(); hlUploadRunning = true;
 
   hlAddLog('info', '═══ BẮT ĐẦU UPLOAD TỪ FILE EXCEL ═══');
-  hlAddLog('info', 'File: ' + file.name + ' | ' + Math.round(file.size / 1024) + 'KB');
-  hlAddLog('info', 'Tài khoản BYT: ' + CFG.bytuser + ' | BV: ' + (CFG.hvname || CFG.mabv || '?'));
+  hlAddLog('info', `File: ${file.name} | ${Math.round(file.size/1024)}KB`);
+  hlAddLog('info', `BYT: ${CFG.bytuser} | BV: ${CFG.hvname||CFG.mabv||'?'}`);
   hlAddLog('info', '⚠️ KHÔNG đóng cửa sổ popup BYT khi đang upload!');
-  hlAddLog('info', 'Timeout mỗi phiếu: ' + (HL_LOAD_TIMEOUT_MS/1000) + 's – đủ cho trang BYT load chậm');
 
   try {
-    // Đọc file Excel
     hlAddLog('info', '📖 Đang đọc file Excel...');
     const { rows, headers, totalRows } = await hlReadExcelFile(file);
-    hlAddLog('info', `Tổng: ${totalRows} dòng | Headers: ${headers.slice(0,8).join(', ')}...`);
-
+    hlAddLog('info', `✅ Đọc xong: ${totalRows} phiếu | Headers: ${headers.slice(0,5).join(', ')}...`);
     if (totalRows === 0) { hlAddLog('warn', 'File không có dữ liệu'); hlUploadRunning = false; return; }
 
-    // Nhận diện loại phiếu
-    const surveyType = hlDetectSurveyTypeFromHeaders(headers);
+    const surveyType = hlDetectSurveyType(headers);
     const mapping    = surveyType === 'noi_tru' ? HL_NOI_TRU_MAPPING : HL_NGOAI_TRU_MAPPING;
-    hlAddLog('info', `Loại phiếu: ${surveyType === 'noi_tru' ? '🏥 Nội Trú' : '🏃 Ngoại Trú'} (${totalRows} phiếu)`);
+    hlAddLog('info', `Loại phiếu: ${surveyType === 'noi_tru' ? '🏥 Nội Trú' : '🏃 Ngoại Trú'} | URL: ${mapping.url}`);
 
     let success = 0, fail = 0, needLogin = false;
     hlSetProgress(0, totalRows);
 
     for (let i = 0; i < rows.length; i++) {
-      const row    = rows[i];
-      const maSo   = row['MA_SO _PHIEU'] || row['MASOPHIEU'] || `Dòng ${i + 1}`;
-      hlAddLog('info', `▶ [${i + 1}/${totalRows}] Phiếu: ${maSo}`);
+      const row  = rows[i];
+      const maSo = row['MA_SO _PHIEU'] || row['MASOPHIEU'] || `Dòng ${i+1}`;
+      hlAddLog('info', `▶ [${i+1}/${totalRows}] ${maSo}`);
 
       let result;
-      try {
-        result = await hlSubmitViaPopup(row, mapping);
-      } catch(e) {
-        result = { ok: false, msg: e.message };
-      }
+      try { result = await hlSubmitViaPopup(row, mapping); }
+      catch(e) { result = { ok: false, msg: e.message }; }
 
       if (result.ok) {
         success++;
@@ -986,72 +787,56 @@ async function hlUploadFromExcel(file) {
         hlAddLog('err', `❌ ${maSo} → ${result.msg}`);
         if (result.msg && result.msg.includes('CHƯA_ĐĂNG_NHẬP')) {
           needLogin = true;
-          hlAddLog('warn', '⛔ Phiên BYT hết hạn – dừng hàng đợi. Nhấn "Đăng nhập BYT" rồi thử lại.');
+          hlAddLog('warn', '⛔ Phiên BYT hết hạn – dừng. Nhấn "Đăng nhập BYT" rồi thử lại.');
           break;
         }
       }
-
-      hlSetProgress(i + 1, totalRows);
-
-      // Chờ giữa các phiếu (giống hailong)
-      if (i < rows.length - 1 && !needLogin) {
-        hlAddLog('info', '⏳ Chờ 3 giây...');
-        await hlSleep(3000);
-      }
+      hlSetProgress(i+1, totalRows);
+      if (i < rows.length-1 && !needLogin) { hlAddLog('info','⏳ Chờ 3s...'); await hlSleep(3000); }
     }
 
     hlAddLog('info', `═══ KẾT QUẢ: ✅ ${success} thành công | ❌ ${fail} thất bại ═══`);
-    toast(`📤 Upload Excel: ${success} ✅ / ${fail} ❌`, success > 0 ? 'success' : 'error');
-
-    if (gsReady()) {
-      gsLogHistory('hl_upload_excel', `Upload từ Excel: ${success}/${totalRows} thành công`).catch(() => {});
+    if (needLogin) {
+      toast('⚠️ Phiên BYT hết hạn! Nhấn "Đăng nhập BYT" rồi thử lại.', 'warning');
+    } else {
+      toast(`📤 Excel: ${success}✅ / ${fail}❌`, success > 0 ? 'success' : 'error');
     }
+    if (gsReady()) gsLogHistory('hl_excel', `Upload Excel: ${success}/${totalRows}`).catch(()=>{});
 
   } catch(err) {
-    hlAddLog('err', '❌ Lỗi đọc file: ' + err.message);
-    toast('❌ Lỗi: ' + err.message, 'error');
+    hlAddLog('err', '❌ Lỗi: ' + err.message);
+    toast('❌ ' + err.message, 'error');
   }
-
   hlUploadRunning = false;
 }
 
-/**
- * Upload từ Google Sheet (tab NOI_TRU hoặc NGOAI_TRU)
- */
 async function hlUploadFromGoogleSheet(surveyType) {
   if (!CFG.bytuser || !CFG.bytpass) {
-    toast('⚠️ Chưa cấu hình tài khoản BYT. Vào Cấu hình → Tài khoản BYT.', 'warning');
-    return;
+    toast('⚠️ Chưa cấu hình tài khoản BYT.', 'warning'); return;
   }
-  if (!gsReady()) {
-    toast('⚠️ Chưa cấu hình Google Sheets. Vào Cấu hình để thiết lập.', 'warning');
-    return;
-  }
+  if (!gsReady()) { toast('⚠️ Chưa cấu hình Google Sheets.', 'warning'); return; }
   if (hlUploadRunning) { toast('Đang chạy, vui lòng chờ...', 'info'); return; }
 
-  const logCard = document.getElementById('hl-log-card');
-  if (logCard) logCard.style.display = '';
-  hlClearLog();
-  hlUploadRunning = true;
+  document.getElementById('hl-log-card').style.display = '';
+  document.getElementById('hl-progress-card').style.display = '';
+  hlClearLog(); hlUploadRunning = true;
 
   const tabName = HL_GS_TABS[surveyType];
   const mapping = surveyType === 'noi_tru' ? HL_NOI_TRU_MAPPING : HL_NGOAI_TRU_MAPPING;
   const label   = surveyType === 'noi_tru' ? '🏥 Nội Trú' : '🏃 Ngoại Trú';
 
-  hlAddLog('info', `═══ BẮT ĐẦU UPLOAD TỪ GOOGLE SHEET: ${tabName} ═══`);
-  hlAddLog('info', `Thời gian: ${new Date().toLocaleString('vi-VN')}`);
+  hlAddLog('info', `═══ UPLOAD TỪ SHEET: ${tabName} ═══`);
+  hlAddLog('info', `BYT: ${CFG.bytuser} | BV: ${CFG.hvname||CFG.mabv||'?'}`);
 
   try {
-    hlAddLog('info', `📊 Đang đọc dữ liệu từ sheet: ${tabName}...`);
+    hlAddLog('info', `📊 Đang đọc tab ${tabName}...`);
     const { rows, rowIndices } = await hlReadGoogleSheet(surveyType);
 
     if (rows.length === 0) {
-      hlAddLog('info', '✅ Không có phiếu nào cần upload (tất cả đã Success hoặc sheet rỗng)');
+      hlAddLog('info', `✅ Tab ${tabName}: không có phiếu chờ upload (tất cả đã Success hoặc rỗng)`);
       toast('✅ Không có phiếu nào cần upload', 'info');
-      hlUploadRunning = false;
-      return;
+      hlUploadRunning = false; return;
     }
-
     hlAddLog('info', `Tìm thấy ${rows.length} phiếu ${label} chờ upload`);
 
     let success = 0, fail = 0, needLogin = false;
@@ -1060,120 +845,211 @@ async function hlUploadFromGoogleSheet(surveyType) {
     for (let i = 0; i < rows.length; i++) {
       const row    = rows[i];
       const rowIdx = rowIndices[i];
-      const maSo   = row['MA_SO _PHIEU'] || `Dòng ${rowIdx}`;
-
-      hlAddLog('info', `▶ [${i + 1}/${rows.length}] Phiếu: ${maSo} (Sheet row ${rowIdx})`);
-
-      // Đánh dấu đang upload trong Sheet
-      await hlUpdateGSRowStatus(surveyType, rowIdx, 'Uploading', '').catch(() => {});
+      const maSo   = row['MA_SO _PHIEU'] || `Row ${rowIdx}`;
+      hlAddLog('info', `▶ [${i+1}/${rows.length}] ${maSo} (Sheet row ${rowIdx})`);
+      await hlUpdateGSRowStatus(surveyType, rowIdx, 'Uploading', '').catch(()=>{});
 
       let result;
-      try {
-        result = await hlSubmitViaPopup(row, mapping);
-      } catch(e) {
-        result = { ok: false, msg: e.message };
-      }
+      try { result = await hlSubmitViaPopup(row, mapping); }
+      catch(e) { result = { ok: false, msg: e.message }; }
 
       if (result.ok) {
         success++;
         hlAddLog('ok', `✅ ${maSo} → ${result.msg}`);
-        // Cập nhật trạng thái thành công lên Sheet
-        await hlUpdateGSRowStatus(surveyType, rowIdx, 'Success', '').catch(() => {});
+        await hlUpdateGSRowStatus(surveyType, rowIdx, 'Success', '').catch(()=>{});
       } else {
         fail++;
         hlAddLog('err', `❌ ${maSo} → ${result.msg}`);
-        await hlUpdateGSRowStatus(surveyType, rowIdx, 'Failed', result.msg).catch(() => {});
-
+        await hlUpdateGSRowStatus(surveyType, rowIdx, 'Failed', result.msg).catch(()=>{});
         if (result.msg && result.msg.includes('CHƯA_ĐĂNG_NHẬP')) {
           needLogin = true;
-          hlAddLog('warn', '⛔ Phiên BYT hết hạn – dừng. Nhấn "Đăng nhập BYT" rồi thử lại.');
+          hlAddLog('warn', '⛔ Phiên BYT hết hạn – dừng. Đăng nhập lại rồi thử lại.');
           break;
         }
       }
-
-      hlSetProgress(i + 1, rows.length);
-
-      if (i < rows.length - 1 && !needLogin) {
-        hlAddLog('info', '⏳ Chờ 3 giây...');
-        await hlSleep(3000);
-      }
+      hlSetProgress(i+1, rows.length);
+      if (i < rows.length-1 && !needLogin) { hlAddLog('info','⏳ Chờ 3s...'); await hlSleep(3000); }
     }
 
     hlAddLog('info', `═══ KẾT QUẢ: ✅ ${success} thành công | ❌ ${fail} thất bại ═══`);
-
     if (needLogin) {
-      toast('⚠️ Phiên BYT hết hạn! Nhấn "Đăng nhập BYT" rồi gửi lại.', 'warning');
-      const lb = document.getElementById('btn-byt-login-now');
-      if (lb) lb.style.display = '';
+      toast('⚠️ Phiên BYT hết hạn! Nhấn "Đăng nhập BYT".', 'warning');
     } else {
-      toast(`📤 Upload Sheet ${label}: ${success} ✅ / ${fail} ❌`, success > 0 ? 'success' : 'error');
+      toast(`📤 Sheet ${label}: ${success}✅/${fail}❌`, success > 0 ? 'success' : 'error');
     }
-
-    if (gsReady()) {
-      gsLogHistory('hl_upload_sheet', `Upload từ Sheet ${tabName}: ${success}/${rows.length} thành công`).catch(() => {});
-    }
+    if (gsReady()) gsLogHistory('hl_sheet', `Upload Sheet ${tabName}: ${success}/${rows.length}`).catch(()=>{});
 
   } catch(err) {
-    hlAddLog('err', '❌ Lỗi đọc Sheet: ' + err.message);
-    toast('❌ Lỗi: ' + err.message, 'error');
+    hlAddLog('err', '❌ Lỗi Sheet: ' + err.message);
+    toast('❌ ' + err.message, 'error');
   }
-
   hlUploadRunning = false;
 }
 
-function hlSleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+// ═══════════════════════════════════════════════════════════
+// 9. LOGIN BYT (IDs riêng, tránh conflict với byt.js)
+// ═══════════════════════════════════════════════════════════
+
+function hlSetLoginUI(type, msg) {
+  const bar = document.getElementById('hl-login-bar');
+  const dot = document.getElementById('hl-login-dot');
+  const txt = document.getElementById('hl-login-msg');
+  const btn = document.getElementById('btn-hl-login');
+  if (bar) bar.className = 'byt-status-bar ' + type;
+  if (dot) dot.className = 'byt-status-dot ' + (type==='logged-in'?'green':type==='checking'?'spin':type==='error'?'red':'orange');
+  if (txt) txt.textContent = msg;
+  if (btn) btn.style.display = (type==='logged-in') ? 'none' : '';
+}
+
+async function hlCheckBYTLogin() {
+  hlSetLoginUI('checking', '🔄 Đang kiểm tra kết nối BYT...');
+  try {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 8000);
+    await fetch('https://hailong.chatluongbenhvien.vn/user/login', {
+      method: 'HEAD', mode: 'no-cors', cache: 'no-store', signal: ctrl.signal
+    });
+    hlSetLoginUI('unknown', '⚠️ CORS không cho phép xác minh tự động. Nhấn "Đăng nhập BYT" → đăng nhập trong popup → quay lại upload.');
+  } catch(e) {
+    hlSetLoginUI(e.name==='AbortError'?'error':'error',
+      e.name==='AbortError' ? '❌ Timeout – kiểm tra kết nối mạng.' : '❌ Không kết nối được: ' + e.message);
+  }
+}
+
+function hlLoginBYT() {
+  if (!CFG.bytuser || !CFG.bytpass) {
+    toast('⚠️ Chưa cấu hình tài khoản BYT. Vào Cấu hình.', 'warning'); showPage('settings'); return;
+  }
+  const user = CFG.bytuser, pass = CFG.bytpass;
+  const win = window.open('https://hailong.chatluongbenhvien.vn/user/login', 'hl_byt_login', 'width=1050,height=720,left=80,top=60');
+  if (!win) { toast('❌ Popup bị chặn. Cho phép popup.', 'error'); return; }
+  hlSetLoginUI('checking', '🔄 Đang mở trang BYT...');
+  hlAddLog('info', 'Mở cửa sổ đăng nhập BYT...');
+  let attempts = 0, injected = false, done = false;
+  const iv = setInterval(() => {
+    attempts++;
+    try {
+      if (win.closed) { clearInterval(iv); if (!done) hlSetLoginUI('unknown', '⚠️ Cửa sổ đóng.'); return; }
+      const url = win.location.href || '', ready = win.document.readyState === 'complete';
+      if (!injected && ready && url.includes('/user')) {
+        injected = true;
+        try {
+          win.eval(`(function(){
+            var u=document.querySelector('#edit-name,input[name="name"]');
+            var p=document.querySelector('#edit-pass,input[name="pass"]');
+            var b=document.querySelector('#edit-submit,input[type="submit"],button[type="submit"]');
+            if(u&&p){u.value=${JSON.stringify(user)};p.value=${JSON.stringify(pass)};
+            u.dispatchEvent(new Event('input',{bubbles:true}));p.dispatchEvent(new Event('input',{bubbles:true}));
+            if(b)setTimeout(function(){b.click();},300);}
+          })()`);
+          hlAddLog('info', 'Đã điền thông tin đăng nhập BYT');
+        } catch(fe) { hlAddLog('warn', 'Auto-fill lỗi: ' + fe.message); }
+      }
+      if (injected && ready && !url.includes('/user/login') && url.startsWith('http')) {
+        done = true; clearInterval(iv);
+        hlSetLoginUI('logged-in', '✅ Đăng nhập BYT thành công! Có thể bắt đầu upload phiếu.');
+        hlAddLog('ok', 'Đăng nhập thành công: ' + url);
+        setTimeout(() => { try { win.close(); } catch(x){} }, 2000);
+      }
+    } catch(e) {
+      if (injected && !done) {
+        done = true; clearInterval(iv);
+        hlSetLoginUI('logged-in', '✅ Đăng nhập BYT thành công!');
+        setTimeout(() => { try { win.close(); } catch(x){} }, 2000);
+      }
+    }
+    if (attempts > 40) { clearInterval(iv); if (!done) hlSetLoginUI('unknown', '⚠️ Hết thời gian.'); }
+  }, 500);
+}
 
 // ═══════════════════════════════════════════════════════════
-// 9. ĐĂNG NHẬP BYT (tái sử dụng từ byt.js)
+// 10. RENDER UI
 // ═══════════════════════════════════════════════════════════
-// Dùng loginBYTNow() từ byt.js (đã có sẵn)
 
-// ═══════════════════════════════════════════════════════════
-// 10. RENDER UI – TRANG "GỬI PHIẾU HAILONG"
-// ═══════════════════════════════════════════════════════════
+let hlSelectedFile = null;
+
+function hlOnExcelSelected(input) {
+  const file = input.files[0];
+  if (!file) return;
+  hlSelectedFile = file;
+  const info = document.getElementById('hl-excel-info');
+  if (info) info.innerHTML = `📄 <b>${file.name}</b> | ${Math.round(file.size/1024)} KB <span style="color:var(--success)">✅</span>`;
+  const btn = document.getElementById('btn-hl-upload-excel');
+  if (btn) { btn.disabled = false; btn.textContent = '📤 Bắt đầu Upload từ Excel'; }
+  hlClearLog();
+  const lc = document.getElementById('hl-log-card');
+  if (lc) lc.style.display = 'none';
+  const pc = document.getElementById('hl-progress-card');
+  if (pc) pc.style.display = 'none';
+  toast(`✅ ${file.name} (${Math.round(file.size/1024)}KB)`, 'success');
+}
+
+function hlStartExcelUpload() {
+  if (!hlSelectedFile) { toast('Chưa chọn file Excel', 'warning'); return; }
+  if (!CFG.bytuser || !CFG.bytpass) {
+    toast('⚠️ Chưa cấu hình tài khoản BYT. Vào Cấu hình.', 'warning'); return;
+  }
+  hlUploadFromExcel(hlSelectedFile);
+}
+
+function hlStartSheetUpload(type) {
+  if (!CFG.bytuser || !CFG.bytpass) {
+    toast('⚠️ Chưa cấu hình tài khoản BYT. Vào Cấu hình.', 'warning'); return;
+  }
+  hlUploadFromGoogleSheet(type);
+}
+
+async function hlCheckGSTabStatus() {
+  if (!gsReady()) { toast('Chưa cấu hình Google Sheets', 'warning'); return; }
+  try {
+    const tabs = await gsGetSheetsList();
+    const nt = tabs.includes(HL_GS_TABS.noi_tru), ng = tabs.includes(HL_GS_TABS.ngoai_tru);
+    toast(`NOI_TRU: ${nt?'✅':'❌'} | NGOAI_TRU: ${ng?'✅':'❌'}`, nt&&ng?'success':'warning');
+    if (!nt||!ng) toast('Nhấn "Tạo tab" để khởi tạo','info');
+  } catch(e) { toast('❌ ' + e.message, 'error'); }
+}
 
 function renderHailongPage() {
   const container = document.getElementById('page-hailong');
   if (!container) return;
-
   container.innerHTML = `
-  <!-- Đăng nhập BYT – IDs riêng tránh conflict với byt.js -->
+  <!-- Đăng nhập BYT -->
   <div class="card mb-14">
     <div class="card-header">
-      <div class="card-title">🔐 Đăng nhập trang BYT (Hailong)</div>
+      <div class="card-title">🔐 Đăng nhập trang BYT</div>
       <div class="flex-gap">
         <button class="btn btn-outline btn-sm" onclick="hlCheckBYTLogin()">🔄 Kiểm tra</button>
-        <button class="btn btn-accent btn-sm" id="btn-hl-login-now" onclick="hlLoginBYT()">🔑 Đăng nhập BYT</button>
+        <button class="btn btn-accent btn-sm" id="btn-hl-login" onclick="hlLoginBYT()">🔑 Đăng nhập BYT</button>
       </div>
     </div>
     <div class="card-body">
-      <div class="byt-status-bar checking" id="hl-login-statusbar">
+      <div class="byt-status-bar unknown" id="hl-login-bar">
         <span class="byt-status-dot orange" id="hl-login-dot"></span>
-        <span id="hl-login-msg">Nhấn "Kiểm tra" để xác minh trạng thái đăng nhập BYT...</span>
+        <span id="hl-login-msg">Nhấn "Kiểm tra" để xác minh, hoặc nhấn "Đăng nhập BYT" để mở cửa sổ đăng nhập.</span>
       </div>
       <div class="warn-box" style="font-size:12px;margin-top:10px;">
-        ⚠️ <b>Phải đăng nhập BYT trước</b> khi gửi phiếu. Tài khoản BYT cấu hình tại
+        ⚠️ <b>Phải đăng nhập BYT trước</b> khi upload. Tài khoản BYT cấu hình tại
         <a href="#" onclick="showPage('settings');return false" style="color:var(--primary)">Cấu hình → Tài khoản BYT</a>.
-        Sau khi đăng nhập, giữ cửa sổ BYT mở và quay lại đây để upload.
+        <br>💡 Sau khi đăng nhập xong trong popup, popup sẽ tự đóng và bạn quay lại đây để upload.
       </div>
     </div>
   </div>
 
-  <!-- Cách 1: Upload từ file Excel -->
+  <!-- Cách 1: Excel -->
   <div class="card mb-14">
     <div class="card-header">
       <div class="card-title">📂 Cách 1 – Upload từ file Excel (.xlsx)</div>
-      <span style="font-size:11px;color:var(--text3);font-weight:400;">Giống hailong-v13 gốc</span>
+      <span style="font-size:11px;color:var(--text3)">Giống hailong-v13 gốc</span>
     </div>
     <div class="card-body">
       <div class="info-box mb-14" style="font-size:12px;">
-        ℹ️ Chọn file Excel xuất từ Google Sheets (tab NOI_TRU hoặc NGOAI_TRU). Hệ thống tự nhận diện loại phiếu từ header.<br>
-        File phải có các cột: <b>MA_SO _PHIEU, TEN_BENH_VIEN, NGAY_DIEN_PHIEU, GIOI_TINH, TUOI, A1–G4...</b>
+        ℹ️ Chọn file Excel xuất từ Google Sheets (tab NOI_TRU hoặc NGOAI_TRU).<br>
+        Hệ thống <b>tự nhận diện</b> Nội Trú / Ngoại Trú từ header file.<br>
+        File cần có cột: <code>MA_SO _PHIEU, TEN_BENH_VIEN, NGAY_DIEN_PHIEU, GIOI_TINH, TUOI, A1–G4...</code>
       </div>
       <div class="form-group mb-14">
         <label class="form-label">Chọn file Excel</label>
-        <input type="file" id="hl-excel-file" accept=".xlsx,.xls"
-          class="form-input" style="padding:8px;"
+        <input type="file" id="hl-excel-file" accept=".xlsx,.xls" class="form-input" style="padding:8px;"
           onchange="hlOnExcelSelected(this)"/>
         <div id="hl-excel-info" style="font-size:11px;color:var(--text3);margin-top:4px;"></div>
       </div>
@@ -1183,31 +1059,28 @@ function renderHailongPage() {
     </div>
   </div>
 
-  <!-- Cách 2: Upload từ Google Sheet -->
+  <!-- Cách 2: Google Sheet -->
   <div class="card mb-14">
     <div class="card-header">
       <div class="card-title">📊 Cách 2 – Upload từ Google Sheet trực tiếp</div>
-      <span style="font-size:11px;color:var(--text3);font-weight:400;">Không cần xuất Excel</span>
+      <span style="font-size:11px;color:var(--text3)">Không cần xuất Excel</span>
     </div>
     <div class="card-body">
       <div class="info-box mb-14" style="font-size:12px;">
-        ℹ️ Đọc trực tiếp từ tab <b>NOI_TRU</b> / <b>NGOAI_TRU</b> trên Google Sheets đã cấu hình.<br>
-        Chỉ upload các dòng có <b>UploadStatus ≠ Success</b>. Sau khi upload, tự động cập nhật trạng thái.
+        ℹ️ Đọc tab <b>NOI_TRU</b> / <b>NGOAI_TRU</b> trên Google Sheets.<br>
+        Chỉ upload dòng có <b>UploadStatus ≠ Success</b>. Tự động cập nhật trạng thái sau upload.
       </div>
-      <div class="form-group mb-14">
-        <label class="form-label">Chọn loại phiếu cần upload</label>
-        <div class="flex-gap" style="gap:10px;">
-          <button class="btn btn-success" style="flex:1;" onclick="hlStartSheetUpload('noi_tru')">
-            🏥 Upload Nội Trú (sheet NOI_TRU)
-          </button>
-          <button class="btn btn-accent" style="flex:1;" onclick="hlStartSheetUpload('ngoai_tru')">
-            🏃 Upload Ngoại Trú (sheet NGOAI_TRU)
-          </button>
-        </div>
+      <div class="flex-gap mb-14" style="gap:10px;">
+        <button class="btn btn-success" style="flex:1" onclick="hlStartSheetUpload('noi_tru')">
+          🏥 Upload Nội Trú (tab NOI_TRU)
+        </button>
+        <button class="btn btn-accent" style="flex:1" onclick="hlStartSheetUpload('ngoai_tru')">
+          🏃 Upload Ngoại Trú (tab NGOAI_TRU)
+        </button>
       </div>
       <div class="flex-gap" style="gap:8px;flex-wrap:wrap;">
         <button class="btn btn-outline btn-sm" onclick="hlInitGSTabs()">🏗️ Tạo tab NOI_TRU + NGOAI_TRU</button>
-        <button class="btn btn-outline btn-sm" onclick="hlCheckGSTabStatus()">🔍 Kiểm tra tab Sheet</button>
+        <button class="btn btn-outline btn-sm" onclick="hlCheckGSTabStatus()">🔍 Kiểm tra tab</button>
       </div>
     </div>
   </div>
@@ -1216,13 +1089,16 @@ function renderHailongPage() {
   <div class="card mb-14" id="hl-progress-card" style="display:none">
     <div class="card-header">
       <div class="card-title">⏳ Tiến trình upload</div>
-      <span id="hl-progress-count" style="font-size:12px;color:var(--text3);">0 / 0</span>
+      <span id="hl-progress-count" style="font-size:12px;color:var(--text3)">0 / 0</span>
     </div>
     <div class="card-body">
       <div class="progress-bar" style="margin-bottom:8px;">
-        <div class="progress-fill" id="hl-progress-fill" style="width:0%;transition:width .3s;"></div>
+        <div class="progress-fill" id="hl-progress-fill" style="width:0%;transition:width .4s"></div>
       </div>
-      <div style="font-size:11px;color:var(--text3);">⚠️ KHÔNG đóng cửa sổ popup BYT khi đang upload!</div>
+      <div style="font-size:11px;color:var(--text3)">
+        ⚠️ KHÔNG đóng cửa sổ popup BYT khi đang upload!<br>
+        Mỗi phiếu cần ~40-60 giây để trang BYT load và submit.
+      </div>
     </div>
   </div>
 
@@ -1233,163 +1109,15 @@ function renderHailongPage() {
       <button class="btn btn-outline btn-sm" onclick="hlClearLog();document.getElementById('hl-log-card').style.display='none'">🗑️ Xóa</button>
     </div>
     <div class="card-body">
-      <div class="upload-log-box" id="hl-upload-log" style="min-height:150px;max-height:400px;overflow-y:auto;font-size:11.5px;font-family:monospace;background:#0d1117;color:#e6edf3;padding:10px;border-radius:6px;"></div>
+      <div id="hl-upload-log"
+        style="min-height:120px;max-height:450px;overflow-y:auto;font-size:11.5px;
+               font-family:monospace;background:#0d1117;color:#e6edf3;
+               padding:10px 12px;border-radius:6px;line-height:1.7;"></div>
     </div>
-  </div>
-  `;
+  </div>`;
 }
 
-// ── Event handlers UI ──
-
-let hlSelectedFile = null;
-
-function hlOnExcelSelected(input) {
-  const file = input.files[0];
-  if (!file) return;
-  hlSelectedFile = file;
-
-  // Hiện thông tin file
-  const info = document.getElementById('hl-excel-info');
-  const sizeKB = Math.round(file.size / 1024);
-  if (info) info.innerHTML = `📄 <b>${file.name}</b> | ${sizeKB} KB
-    <span style="color:var(--success);margin-left:8px;">✅ Đã chọn</span>`;
-
-  // Kích hoạt nút
-  const btn = document.getElementById('btn-hl-upload-excel');
-  if (btn) {
-    btn.disabled = false;
-    btn.textContent = '📤 Bắt đầu Upload từ Excel';
-  }
-
-  // Reset log cũ
-  hlClearLog();
-  const logCard = document.getElementById('hl-log-card');
-  if (logCard) logCard.style.display = 'none';
-
-  toast(`✅ Đã chọn: ${file.name} (${sizeKB}KB)`, 'success');
-}
-
-function hlStartExcelUpload() {
-  if (!hlSelectedFile) { toast('Chưa chọn file Excel', 'warning'); return; }
-  if (!CFG.bytuser || !CFG.bytpass) {
-    toast('⚠️ Chưa cấu hình tài khoản BYT. Vào Cấu hình → Tài khoản BYT.', 'warning');
-    return;
-  }
-  const card = document.getElementById('hl-progress-card');
-  if (card) card.style.display = '';
-  const logCard = document.getElementById('hl-log-card');
-  if (logCard) logCard.style.display = '';
-  hlUploadFromExcel(hlSelectedFile);
-}
-
-function hlStartSheetUpload(surveyType) {
-  const card = document.getElementById('hl-progress-card');
-  if (card) card.style.display = '';
-  hlUploadFromGoogleSheet(surveyType);
-}
-
-async function hlCheckGSTabStatus() {
-  if (!gsReady()) { toast('Chưa cấu hình Google Sheets', 'warning'); return; }
-  try {
-    const tabs = await gsGetSheetsList();
-    const hasNT  = tabs.includes(HL_GS_TABS.noi_tru);
-    const hasNGT = tabs.includes(HL_GS_TABS.ngoai_tru);
-    const msg = `Tab NOI_TRU: ${hasNT ? '✅' : '❌'} | Tab NGOAI_TRU: ${hasNGT ? '✅' : '❌'}`;
-    toast(msg, (hasNT && hasNGT) ? 'success' : 'warning');
-    if (!hasNT || !hasNGT) {
-      toast('Nhấn "Tạo tab NOI_TRU + NGOAI_TRU" để khởi tạo', 'info');
-    }
-  } catch(e) {
-    toast('❌ Lỗi kiểm tra: ' + e.message, 'error');
-  }
-}
-
-// ─── Hàm login/check BYT riêng cho trang Hailong (tránh conflict IDs với byt.js) ───
-
-function hlSetLoginUI(type, msg) {
-  const bar  = document.getElementById('hl-login-statusbar');
-  const dot  = document.getElementById('hl-login-dot');
-  const msgEl = document.getElementById('hl-login-msg');
-  const loginBtn = document.getElementById('btn-hl-login-now');
-  if (!bar || !dot || !msgEl) return;
-  bar.className  = 'byt-status-bar ' + type;
-  dot.className  = 'byt-status-dot ' + (type==='logged-in'?'green':type==='checking'?'spin':type==='error'?'red':'orange');
-  msgEl.textContent = msg;
-  if (loginBtn) loginBtn.style.display = (type === 'logged-in') ? 'none' : '';
-}
-
-async function hlCheckBYTLogin() {
-  hlSetLoginUI('checking', '🔄 Đang kiểm tra kết nối BYT...');
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000);
-    await fetch('https://hailong.chatluongbenhvien.vn/user/login', {
-      method: 'HEAD', mode: 'no-cors', cache: 'no-store', signal: ctrl.signal
-    });
-    clearTimeout(timer);
-    hlSetLoginUI('unknown', '⚠️ Không xác minh tự động được (CORS). Nhấn "Đăng nhập BYT" để mở cửa sổ đăng nhập rồi quay lại đây upload.');
-  } catch(e) {
-    hlSetLoginUI('error', e.name === 'AbortError'
-      ? '❌ Timeout – kiểm tra kết nối mạng.'
-      : '❌ Không kết nối được BYT: ' + e.message);
-  }
-}
-
-function hlLoginBYT() {
-  if (!CFG.bytuser || !CFG.bytpass) {
-    toast('⚠️ Chưa cấu hình tài khoản BYT. Vào Cấu hình → Tài khoản BYT.', 'warning');
-    showPage('settings'); return;
-  }
-  const user = CFG.bytuser, pass = CFG.bytpass;
-  const win = window.open('https://hailong.chatluongbenhvien.vn/user/login', 'hl_byt_login', 'width=1050,height=720,left=80,top=60');
-  if (!win) { toast('❌ Trình duyệt chặn popup. Vui lòng cho phép popup.', 'error'); return; }
-  hlSetLoginUI('checking', '🔄 Đang mở trang BYT và đăng nhập...');
-  hlAddLog('info', 'Mở cửa sổ đăng nhập BYT...');
-  let attempts = 0, injected = false, redirected = false;
-  const iv = setInterval(() => {
-    attempts++;
-    try {
-      if (win.closed) {
-        clearInterval(iv);
-        if (!redirected) hlSetLoginUI('unknown', '⚠️ Cửa sổ đóng. Nhấn gửi phiếu để thử.');
-        return;
-      }
-      const curUrl = win.location.href || '', ready = win.document.readyState === 'complete';
-      if (!injected && ready && curUrl.includes('/user')) {
-        injected = true;
-        try {
-          win.eval(`(function(){
-            var u=document.querySelector('#edit-name,input[name="name"]');
-            var p=document.querySelector('#edit-pass,input[name="pass"]');
-            var b=document.querySelector('#edit-submit,input[type="submit"],button[type="submit"]');
-            if(u&&p){u.value=${JSON.stringify(user)};p.value=${JSON.stringify(pass)};
-            u.dispatchEvent(new Event('input',{bubbles:true}));p.dispatchEvent(new Event('input',{bubbles:true}));
-            if(b)b.click();}
-          })()`);
-          hlAddLog('info', 'Đã điền thông tin đăng nhập và click Submit');
-        } catch(fe){ hlAddLog('warn', 'Không thể auto-fill: ' + fe.message); }
-      }
-      if (injected && ready && !curUrl.includes('/user/login') && curUrl.startsWith('http')) {
-        redirected = true; clearInterval(iv);
-        hlSetLoginUI('logged-in', '✅ Đăng nhập BYT thành công! Giữ cửa sổ BYT mở và bắt đầu upload phiếu.');
-        hlAddLog('ok', 'Đăng nhập thành công: ' + curUrl);
-        setTimeout(() => { try { win.close(); } catch(x){} }, 2000);
-      }
-    } catch(e) {
-      if (injected && !redirected) {
-        redirected = true; clearInterval(iv);
-        hlSetLoginUI('logged-in', '✅ Đăng nhập BYT thành công!');
-        hlAddLog('ok', 'Đăng nhập thành công (cross-origin redirect)');
-        setTimeout(() => { try { win.close(); } catch(x){} }, 2000);
-      }
-    }
-    if (attempts > 40) { clearInterval(iv); if (!redirected) hlSetLoginUI('unknown', '⚠️ Hết thời gian. Thử đăng nhập thủ công.'); }
-  }, 500);
-}
-
-// Init khi page load
 function initHailongModule() {
-  // Render page nếu chưa có content
-  const container = document.getElementById('page-hailong');
-  if (container && !container.innerHTML.trim()) renderHailongPage();
+  const c = document.getElementById('page-hailong');
+  if (c && !c.innerHTML.trim()) renderHailongPage();
 }
