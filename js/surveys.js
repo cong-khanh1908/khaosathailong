@@ -432,9 +432,43 @@ function collectForm(type) {
 
 function saveForm(type) {
   const rec = collectForm(type);
-  if (!rec.ngay){toast('Vui lòng chọn ngày điền phiếu!','error');return;}
+  const def = SURVEYS[type];
 
-  // ── Kiểm tra các trường bắt buộc do admin cấu hình ─────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BƯỚC 1 — VALIDATION BẮT BUỘC LUÔN CHẠY (không phụ thuộc admin config)
+  // Chỉ khi TẤT CẢ validation pass → mới lưu & đẩy lên Sheets/BYT_QUEUE
+  // ═══════════════════════════════════════════════════════════════════════════
+  const errors = [];
+
+  // 1a. Ngày điền phiếu
+  if (!rec.ngay) {
+    errors.push({ field: `${type}_ngay`, msg: 'Ngày điền phiếu' });
+  }
+
+  // 1b. Câu hỏi Likert — kiểm tra TẤT CẢ câu phải được trả lời
+  const unansweredList = rec.answers.filter(a => a.value === null);
+  if (unansweredList.length > 0) {
+    // Highlight từng card câu hỏi chưa trả lời
+    unansweredList.forEach(a => {
+      const secId = a.code.replace(/\d+.*$/, '');
+      const qi    = parseInt(a.code.replace(/^[A-Z]+/, '')) - 1;
+      const name  = `${type}_${secId}_${qi}`;
+      const card  = document.getElementById(`qcard_${name}`);
+      if (card) {
+        card.style.background = '#FFF3E0';
+        card.style.borderLeft = '3px solid #FF9800';
+        setTimeout(() => {
+          card.style.background = '';
+          card.style.borderLeft = '';
+        }, 4000);
+      }
+    });
+    errors.push({ field: null, msg: `${unansweredList.length} câu hỏi khảo sát chưa được trả lời` });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BƯỚC 2 — VALIDATION TRƯỜNG BẮT BUỘC DO ADMIN CẤU HÌNH (nếu có)
+  // ═══════════════════════════════════════════════════════════════════════════
   const reqFields = (CFG.requiredFields && CFG.requiredFields[type]) || [];
   if (reqFields.length > 0) {
     const FIELD_LABELS = {
@@ -449,57 +483,82 @@ function saveForm(type) {
       e7:'E7 - Chi phí chất lượng', e5:'E5 - Chi phí chất lượng',
       answers:'Tất cả câu hỏi Likert',
     };
-    const missing = [];
     for (const f of reqFields) {
-      if (f === 'answers') {
-        const unanswered = rec.answers.filter(a => a.value === null).length;
-        if (unanswered > 0) missing.push(`${unanswered} câu hỏi khảo sát chưa trả lời`);
-      } else {
-        const val = rec[f];
-        if (!val || val === '' || val === null) missing.push(FIELD_LABELS[f] || f);
+      if (f === 'answers') continue; // đã kiểm tra ở Bước 1b
+      const val = rec[f];
+      if (!val || val === '' || val === null) {
+        errors.push({ field: `${type}_${f}`, msg: FIELD_LABELS[f] || f });
       }
-    }
-    if (missing.length > 0) {
-      toast(`⛔ Vui lòng điền đủ: ${missing.join(', ')}`, 'error');
-      // Highlight ô còn trống, cuộn đến ô đầu tiên
-      let firstEl = null;
-      reqFields.forEach(f => {
-        if (f === 'answers') return;
-        const val = rec[f];
-        if (!val || val === '' || val === null) {
-          const el = document.getElementById(`${type}_${f}`);
-          if (el) {
-            el.classList.add('req-error');
-            if (!firstEl) firstEl = el;
-            setTimeout(() => el.classList.remove('req-error'), 3000);
-          }
-        }
-      });
-      if (firstEl) firstEl.scrollIntoView({behavior:'smooth', block:'center'});
-      return;
     }
   }
 
-  const unanswered = rec.answers.filter(a=>a.value===null).length;
-  DB.surveys.push(rec); saveDB(); updateDash();
-  toast(unanswered>0?`⚠️ Đã lưu (còn ${unanswered} câu chưa trả lời)`:`✅ Đã lưu đầy đủ ${rec.answers.length} câu`, unanswered>0?'warning':'success');
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NẾU CÓ LỖI → DỪNG HOÀN TOÀN, không lưu, không đẩy Sheet, không BYT_QUEUE
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (errors.length > 0) {
+    const fieldErrors  = errors.filter(e => e.field);
+    const otherErrors  = errors.filter(e => !e.field);
+    const allMsgs      = errors.map(e => e.msg);
+
+    // Highlight + cuộn đến ô lỗi đầu tiên
+    let firstEl = null;
+    fieldErrors.forEach(e => {
+      const el = document.getElementById(e.field);
+      if (el) {
+        el.classList.add('req-error');
+        if (!firstEl) firstEl = el;
+        setTimeout(() => el.classList.remove('req-error'), 4000);
+      }
+    });
+    if (firstEl) firstEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    // Toast lỗi rõ ràng
+    const questionErr = otherErrors.find(e => e.msg.includes('câu hỏi'));
+    if (questionErr && fieldErrors.length === 0) {
+      toast(`⛔ Còn ${questionErr.msg} — hãy trả lời đầy đủ trước khi lưu`, 'error');
+    } else {
+      toast(`⛔ Vui lòng điền đủ: ${allMsgs.join(' | ')}`, 'error');
+    }
+    return; // ← DỪNG HOÀN TOÀN TẠI ĐÂY
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TẤT CẢ VALIDATION ĐÃ PASS → Lưu + Đồng bộ
+  // ═══════════════════════════════════════════════════════════════════════════
+  DB.surveys.push(rec);
+  saveDB();
+  updateDash();
   clearFormFields(type);
   updateBYTPendingBadge();
+  toast(`✅ Đã lưu đầy đủ ${rec.answers.length} câu — đang đồng bộ...`, 'success');
+
   if (navigator.onLine && gsReady()) {
     setTimeout(async () => {
       const ok = await gsPushOneSurvey(rec);
-      if (ok) { toast('☁️ Đã đồng bộ lên Sheets','success'); updateDash(); }
-      else toast('⚠️ Lưu Sheets thất bại – sẽ thử lại sau','warning');
-      if (rec.type==='m1'||rec.type==='m2') {
+      if (ok) { toast('☁️ Đã đồng bộ lên Sheets', 'success'); updateDash(); }
+      else     { toast('⚠️ Lưu Sheets thất bại – sẽ thử lại sau', 'warning'); }
+
+      if (rec.type === 'm1' || rec.type === 'm2') {
         const qOk = await gsPushSurveyToBytQueue(rec);
-        if (qOk) { toast('📋 Đã thêm vào BYT_QUEUE','info'); if(typeof renderBYTStatusDash==='function')renderBYTStatusDash(); }
+        if (qOk) {
+          toast('📋 Đã thêm vào BYT_QUEUE', 'info');
+          if (typeof renderBYTStatusDash === 'function') renderBYTStatusDash();
+        }
       }
     }, 800);
   } else if (!gsReady()) {
-    toast('⚠️ Chưa cấu hình Sheets – dữ liệu chỉ lưu cục bộ!','warning');
+    toast('⚠️ Chưa cấu hình Sheets – dữ liệu chỉ lưu cục bộ!', 'warning');
   }
-  if (CFG.autoUploadBYT&&navigator.onLine&&CFG.bytuser&&CFG.bytpass&&typeof bytLoginStatus!=='undefined'&&bytLoginStatus==='logged-in'&&typeof bytUploadRunning!=='undefined'&&!bytUploadRunning) {
-    setTimeout(()=>{if(typeof bytSelectedIds!=='undefined'&&typeof sendSelectedToBYT==='function'){bytSelectedIds.add(rec.id);sendSelectedToBYT();}},2000);
+
+  if (CFG.autoUploadBYT && navigator.onLine && CFG.bytuser && CFG.bytpass &&
+      typeof bytLoginStatus !== 'undefined' && bytLoginStatus === 'logged-in' &&
+      typeof bytUploadRunning !== 'undefined' && !bytUploadRunning) {
+    setTimeout(() => {
+      if (typeof bytSelectedIds !== 'undefined' && typeof sendSelectedToBYT === 'function') {
+        bytSelectedIds.add(rec.id);
+        sendSelectedToBYT();
+      }
+    }, 2000);
   }
 }
 
