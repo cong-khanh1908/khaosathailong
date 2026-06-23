@@ -822,6 +822,14 @@ table.data-table tbody td{padding:10px 14px;color:var(--text2);font-size:12.5px;
 
   /* Bottom nav */
   .bottom-nav{display:block;}
+
+  /* Survey save bar: nằm ngay trên bottom-nav, không bị che */
+  .survey-save-bar{
+    bottom:var(--bottom-nav-h);
+    padding-bottom:8px;
+  }
+  /* Thêm padding-bottom để nội dung cuối form không bị khuất sau save-bar + bottom-nav */
+  .survey-wrapper{padding-bottom:calc(var(--bottom-nav-h) + 88px);}
   
   /* Toast above bottom nav */
   .toast-container{bottom:calc(var(--bottom-nav-h) + 12px);}
@@ -863,6 +871,14 @@ table.data-table tbody td{padding:10px 14px;color:var(--text2);font-size:12.5px;
 @supports(padding-bottom:env(safe-area-inset-bottom)){
   .bottom-nav{padding-bottom:env(safe-area-inset-bottom);}
   .bottom-nav-inner{height:calc(var(--bottom-nav-h) - env(safe-area-inset-bottom));}
+}
+/* Trên mobile, save-bar nằm ngay trên bottom-nav – thêm safe-area để không bị Home indicator che */
+@media(max-width:768px){
+  @supports(padding-bottom:env(safe-area-inset-bottom)){
+    .survey-save-bar{
+      bottom:calc(var(--bottom-nav-h) + env(safe-area-inset-bottom));
+    }
+  }
 }
 
 /* ===== BOOTSTRAP / CLOUD SYNC OVERLAY ===== */
@@ -1257,4 +1273,36 @@ table.data-table tbody td{padding:10px 14px;color:var(--text2);font-size:12.5px;
 .login-box {
   overflow-y: auto;
   max-height: 95vh;
+}
+
+/* ===== REQUIRED FIELDS ADMIN CONFIG PANEL ===== */
+#req-fields-panel label:last-of-type { border-bottom: none; }
+#req-fields-panel input[type="checkbox"]:checked + span {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+/* Dấu * bắt buộc thêm động bởi surveys.js */
+.req-star { color: var(--accent2); margin-left: 2px; }
+
+/* Highlight ô bắt buộc chưa điền khi submit */
+.sf-input.req-error,
+.sf-select.req-error {
+  border: 2px solid #E53935 !important;
+  background: #FFF5F5 !important;
+  animation: reqShake .3s ease;
+}
+@keyframes reqShake {
+  0%,100%{transform:translateX(0)}
+  25%{transform:translateX(-4px)}
+  75%{transform:translateX(4px)}
+}
+
+/* Badge hiển thị số trường bắt buộc trên form header */
+.req-badge {
+  display:inline-flex;align-items:center;gap:4px;
+  background:#FFF3E0;color:#E65100;
+  font-size:10.5px;font-weight:700;
+  padding:2px 8px;border-radius:20px;
+  border:1px solid #FFB74D;
 }

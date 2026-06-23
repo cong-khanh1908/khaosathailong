@@ -142,6 +142,10 @@ function saveCfgAll(){
   CFG.khoaId           = (document.getElementById('cfg-khoaid')             || {value:CFG.khoaId||''}).value.trim();
   const cbAuto = document.getElementById('cfg-auto-upload-settings');
   if(cbAuto) CFG.autoUploadBYT = cbAuto.checked;
+  // ── Lưu cấu hình trường bắt buộc ─────────────────────────────────────
+  if(typeof collectReqFields === 'function') {
+    CFG.requiredFields = collectReqFields();
+  }
   loadAutoUploadCheckboxes();
   saveCFG();
   if(CFG.hvname){
@@ -178,6 +182,14 @@ function loadCfgToUI(){
   if(gsReady()) updateGSConnBadge(true);
   const li=document.getElementById('local-info');
   if(li) li.innerHTML='Tổng <b>'+DB.surveys.length+'</b> phiếu · <b>'+(JSON.stringify(DB).length/1024).toFixed(1)+' KB</b> · '+DEPTS.length+' khoa · '+USERS.length+' TK';
+  // Render required fields panel với dữ liệu đã lưu
+  if(typeof renderReqFieldsPanel === 'function') {
+    renderReqFieldsPanel('m1');
+    // Reset về tab m1
+    document.querySelectorAll('#req-tab-bar .btn').forEach((b,i)=>{
+      b.className = i===0 ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline';
+    });
+  }
 }
 
 // =========================================================

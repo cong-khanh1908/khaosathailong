@@ -52,12 +52,6 @@ let bytTestResults   = [];
 // =========================================================
 // UI HELPERS
 // =========================================================
-function updateBYTPendingBadge() {
-  const pending = DB.surveys.filter(x => !x.bytStatus || x.bytStatus === 'pending').length;
-  const b = document.getElementById('pendingBYTBadge');
-  if (b) { b.textContent = pending; b.style.display = pending > 0 ? '' : 'none'; }
-}
-
 function toggleAutoUpload(checked) {
   CFG.autoUploadBYT = checked; saveCFG();
   const cb2 = document.getElementById('cfg-auto-upload-settings');

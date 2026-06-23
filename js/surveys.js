@@ -267,7 +267,12 @@ function buildForm(type) {
     </div>
 
     <div class="survey-info-section">
-      <div class="survey-info-title">📌 Thông tin người trả lời</div>
+      <div class="survey-info-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <span>📌 Thông tin người trả lời</span>
+        ${((CFG.requiredFields||{})[type]||[]).filter(f=>f!=='answers').length > 0
+          ? `<span class="req-badge">🔒 ${((CFG.requiredFields||{})[type]||[]).filter(f=>f!=='answers').length} trường bắt buộc</span>`
+          : ''}
+      </div>
       ${infoHtml[type]||''}
     </div>
 
@@ -283,6 +288,23 @@ function buildForm(type) {
       <button class="btn-clear-form" onclick="clearFormFields('${type}')">🗑 Xóa</button>
     </div>
   </div>`;
+
+  // Đánh dấu * trên label của các trường bắt buộc
+  setTimeout(() => {
+    const reqList = (CFG.requiredFields || {})[type] || [];
+    reqList.forEach(f => {
+      if (f === 'answers') return;
+      const el = document.getElementById(`${type}_${f}`);
+      if (!el) return;
+      const lbl = el.closest('.sf-col')?.querySelector('.sf-label');
+      if (lbl && !lbl.querySelector('.req-star')) {
+        const star = document.createElement('span');
+        star.className = 'req req-star';
+        star.textContent = ' *';
+        lbl.appendChild(star);
+      }
+    });
+  }, 0);
 }
 
 // =========================================================
@@ -411,6 +433,53 @@ function collectForm(type) {
 function saveForm(type) {
   const rec = collectForm(type);
   if (!rec.ngay){toast('Vui lòng chọn ngày điền phiếu!','error');return;}
+
+  // ── Kiểm tra các trường bắt buộc do admin cấu hình ─────────────────────
+  const reqFields = (CFG.requiredFields && CFG.requiredFields[type]) || [];
+  if (reqFields.length > 0) {
+    const FIELD_LABELS = {
+      ngay:'Ngày điền phiếu', benhvien:'Tên bệnh viện', donvi:'Tên đơn vị',
+      khoa:'Khoa', nguoitl:'Người trả lời', gt:'Giới tính', tuoi:'Tuổi',
+      songay:'Số ngày nằm viện', bhyt:'Thẻ BHYT', noiss:'Nơi sinh sống',
+      mucsong:'Mức sống', lanthu:'Lần điều trị', sdt:'Số điện thoại',
+      kc:'Khoảng cách', lansinh:'Lần sinh', hinhthuc:'Hình thức sinh',
+      thoidiemks:'Thời điểm khảo sát', chucdanh:'Chức danh', thamnie:'Thâm niên',
+      trinhdo:'Trình độ', hopdong:'Loại hợp đồng',
+      g1:'G1 - % mong đợi', g2:'G2 - Quay lại/giới thiệu',
+      e7:'E7 - Chi phí chất lượng', e5:'E5 - Chi phí chất lượng',
+      answers:'Tất cả câu hỏi Likert',
+    };
+    const missing = [];
+    for (const f of reqFields) {
+      if (f === 'answers') {
+        const unanswered = rec.answers.filter(a => a.value === null).length;
+        if (unanswered > 0) missing.push(`${unanswered} câu hỏi khảo sát chưa trả lời`);
+      } else {
+        const val = rec[f];
+        if (!val || val === '' || val === null) missing.push(FIELD_LABELS[f] || f);
+      }
+    }
+    if (missing.length > 0) {
+      toast(`⛔ Vui lòng điền đủ: ${missing.join(', ')}`, 'error');
+      // Highlight ô còn trống, cuộn đến ô đầu tiên
+      let firstEl = null;
+      reqFields.forEach(f => {
+        if (f === 'answers') return;
+        const val = rec[f];
+        if (!val || val === '' || val === null) {
+          const el = document.getElementById(`${type}_${f}`);
+          if (el) {
+            el.classList.add('req-error');
+            if (!firstEl) firstEl = el;
+            setTimeout(() => el.classList.remove('req-error'), 3000);
+          }
+        }
+      });
+      if (firstEl) firstEl.scrollIntoView({behavior:'smooth', block:'center'});
+      return;
+    }
+  }
+
   const unanswered = rec.answers.filter(a=>a.value===null).length;
   DB.surveys.push(rec); saveDB(); updateDash();
   toast(unanswered>0?`⚠️ Đã lưu (còn ${unanswered} câu chưa trả lời)`:`✅ Đã lưu đầy đủ ${rec.answers.length} câu`, unanswered>0?'warning':'success');
@@ -454,3 +523,115 @@ function clearFormFields(type) {
   if(CFG.hvname){['benhvien','donvi'].forEach(f=>{const el=document.getElementById(`${type}_${f}`);if(el)el.value=CFG.hvname;});}
   updateSurveyProgress(type);
 }
+
+// =========================================================
+// REQUIRED FIELDS ADMIN CONFIG
+// =========================================================
+
+// Định nghĩa các trường có thể bắt buộc theo từng mẫu phiếu
+const REQ_FIELD_DEFS = {
+  m1: [
+    {id:'khoa',      label:'🏢 Khoa nằm điều trị'},
+    {id:'nguoitl',   label:'👤 Người trả lời'},
+    {id:'gt',        label:'⚧ Giới tính'},
+    {id:'tuoi',      label:'🎂 Tuổi / Năm sinh'},
+    {id:'songay',    label:'🛏 Số ngày nằm viện'},
+    {id:'bhyt',      label:'🏷 Thẻ BHYT'},
+    {id:'noiss',     label:'📍 Nơi sinh sống'},
+    {id:'mucsong',   label:'💰 Mức sống gia đình'},
+    {id:'lanthu',    label:'🔢 Lần điều trị'},
+    {id:'sdt',       label:'📞 Số điện thoại'},
+    {id:'g2',        label:'🔁 G2. Quay lại / Giới thiệu'},
+    {id:'e7',        label:'💵 E7. Chi phí – Chất lượng'},
+    {id:'answers',   label:'📋 Tất cả câu hỏi Likert (không bỏ trống)'},
+  ],
+  m2: [
+    {id:'nguoitl',   label:'👤 Người trả lời'},
+    {id:'gt',        label:'⚧ Giới tính'},
+    {id:'tuoi',      label:'🎂 Tuổi'},
+    {id:'bhyt',      label:'🏷 Thẻ BHYT'},
+    {id:'noiss',     label:'📍 Nơi sinh sống'},
+    {id:'mucsong',   label:'💰 Mức sống'},
+    {id:'lanthu',    label:'🔢 Lần khám'},
+    {id:'kc',        label:'📏 Khoảng cách'},
+    {id:'g2',        label:'🔁 G2. Quay lại / Giới thiệu'},
+    {id:'e5',        label:'💵 E5. Chi phí – Chất lượng'},
+    {id:'answers',   label:'📋 Tất cả câu hỏi Likert'},
+  ],
+  m3: [
+    {id:'khoa',      label:'🏢 Khoa/Phòng công tác'},
+    {id:'gt',        label:'⚧ Giới tính'},
+    {id:'chucdanh',  label:'👨‍⚕️ Chức danh'},
+    {id:'thamnie',   label:'⏱ Thâm niên'},
+    {id:'trinhdo',   label:'🎓 Trình độ'},
+    {id:'hopdong',   label:'📋 Loại hợp đồng'},
+    {id:'answers',   label:'📋 Tất cả câu hỏi Likert'},
+  ],
+  m4: [
+    {id:'khoa',      label:'🍼 Khoa Sản'},
+    {id:'nguoitl',   label:'👤 Người trả lời'},
+    {id:'tuoi',      label:'🎂 Tuổi sản phụ'},
+    {id:'lansinh',   label:'🔢 Lần sinh'},
+    {id:'hinhthuc',  label:'🏥 Hình thức sinh'},
+    {id:'bhyt',      label:'🏷 BHYT'},
+    {id:'answers',   label:'📋 Tất cả câu hỏi Likert'},
+  ],
+  m5: [
+    {id:'thoidiemks',label:'⏰ Thời điểm khảo sát'},
+    {id:'lansinh',   label:'🔢 Lần sinh'},
+    {id:'answers',   label:'📋 Tất cả câu hỏi Likert'},
+  ],
+};
+
+// Trạng thái tab đang chọn
+let _reqCurrentTab = 'm1';
+
+function switchReqTab(type, btn) {
+  // Lưu trạng thái tab hiện tại vào CFG trước khi chuyển
+  _saveCurrentTabReqFields();
+  _reqCurrentTab = type;
+  document.querySelectorAll('#req-tab-bar .btn').forEach(b => {
+    b.className = b === btn ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline';
+  });
+  renderReqFieldsPanel(type);
+}
+
+function _saveCurrentTabReqFields() {
+  const type = _reqCurrentTab;
+  if (!CFG.requiredFields) CFG.requiredFields = {};
+  const defs = REQ_FIELD_DEFS[type] || [];
+  CFG.requiredFields[type] = defs
+    .map(f => document.getElementById(`reqf_${type}_${f.id}`))
+    .filter(el => el && el.checked)
+    .map(el => el.value);
+}
+
+function renderReqFieldsPanel(type) {
+  const panel = document.getElementById('req-fields-panel');
+  if (!panel) return;
+  const defs = REQ_FIELD_DEFS[type] || [];
+  const saved = (CFG.requiredFields && CFG.requiredFields[type]) || [];
+  const mauLabel = {m1:'Mẫu 1 – NB Nội trú', m2:'Mẫu 2 – NB Ngoại trú', m3:'Mẫu 3 – NVYT', m4:'Mẫu 4 – Người mẹ sinh', m5:'Mẫu 5 – Nuôi con SM'}[type] || type;
+  panel.innerHTML = `
+    <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:10px;">${mauLabel}</div>
+    ${defs.map(f => `
+      <label style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #EEF2F7;cursor:pointer;">
+        <input type="checkbox" id="reqf_${type}_${f.id}" value="${f.id}"
+          style="width:17px;height:17px;accent-color:var(--primary);cursor:pointer;"
+          ${saved.includes(f.id) ? 'checked' : ''}>
+        <span style="font-size:12.5px;color:var(--text1);">${f.label}</span>
+      </label>`).join('')}
+    <div style="margin-top:10px;font-size:11px;color:var(--text3);">
+      ✏️ Nhớ nhấn <b>💾 Lưu & Đồng bộ Sheets</b> sau khi thay đổi.
+    </div>`;
+}
+
+function collectReqFields() {
+  // Flush trạng thái tab đang mở trước khi thu thập
+  _saveCurrentTabReqFields();
+  // Trả về bản sao CFG.requiredFields đã được cập nhật
+  return Object.assign({}, CFG.requiredFields || {});
+}
+
+// Panel tự render khi admin mở trang Settings
+// (được gọi từ loadCfgToUI trong sheets.js)
