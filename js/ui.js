@@ -81,7 +81,7 @@ updateContentPadding();
 // =========================================================
 // NAVIGATION
 // =========================================================
-const PAGE_TITLES={dashboard:'Dashboard',m1:'Mẫu 1 – NB Nội trú (QĐ 56/2024)',m2:'Mẫu 2 – NB Ngoại trú (QĐ 56/2024)',m3:'Mẫu 3 – Nhân viên Y tế (QĐ 3869/2019)',m4:'Mẫu 4 – Người mẹ sinh con (QĐ 3869/2019)',m5:'Mẫu 5 – Nuôi con sữa mẹ (QĐ 3869/2019)',datalist:'Danh sách phiếu khảo sát',autofill:'Tự động điền BYT',bytupload:'Gửi phiếu lên trang BYT',baocao:'📑 Tạo báo cáo tổng hợp hài lòng',history:'🕒 Lịch sử hệ thống','guest-home':'Trang khảo sát người dân',settings:'Cấu hình hệ thống',users:'Quản lý tài khoản',depts:'Danh mục Khoa/Phòng',profile:'👤 Tài khoản của tôi'};
+const PAGE_TITLES={dashboard:'Dashboard',m1:'Mẫu 1 – NB Nội trú (QĐ 56/2024)',m2:'Mẫu 2 – NB Ngoại trú (QĐ 56/2024)',m3:'Mẫu 3 – Nhân viên Y tế (QĐ 3869/2019)',m4:'Mẫu 4 – Người mẹ sinh con (QĐ 3869/2019)',m5:'Mẫu 5 – Nuôi con sữa mẹ (QĐ 3869/2019)',datalist:'Danh sách phiếu khảo sát',autofill:'Tự động điền BYT',bytupload:'Gửi phiếu lên trang BYT',baocao:'📑 Tạo báo cáo tổng hợp hài lòng',history:'🕒 Lịch sử hệ thống','guest-home':'Trang khảo sát người dân',settings:'Cấu hình hệ thống',users:'Quản lý tài khoản',depts:'Danh mục Khoa/Phòng',profile:'👤 Tài khoản của tôi',guide:'📖 Hướng dẫn sử dụng'};
 function showPage(name){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
@@ -170,3 +170,26 @@ setInterval(async () => {
     _autoSyncRunning = false;
   }
 }, 90000);
+/* ================================================================
+   HƯỚNG DẪN SỬ DỤNG — Tab navigation
+   ================================================================ */
+function switchGuideSection(sectionId) {
+  // Deactivate all sections
+  document.querySelectorAll('.guide-section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.guide-toc-item').forEach(i => i.classList.remove('active'));
+
+  // Activate target section
+  const target = document.getElementById(sectionId);
+  if (target) target.classList.add('active');
+
+  // Activate TOC item
+  document.querySelectorAll('.guide-toc-item').forEach(item => {
+    if (item.getAttribute('onclick')?.includes(`'${sectionId}'`)) {
+      item.classList.add('active');
+    }
+  });
+
+  // Scroll content to top
+  const content = document.getElementById('guideContent');
+  if (content) content.scrollTop = 0;
+}

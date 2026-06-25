@@ -368,6 +368,8 @@
       <div class="nav-item admin-only" onclick="showPage('users')"><span class="icon">👥</span> Quản lý tài khoản <span class="nav-badge" id="reqBadgeNav" style="display:none">0</span></div>
       <div class="nav-item user-only" onclick="showPage('profile')"><span class="icon">👤</span> Tài khoản của tôi</div>
       <div class="nav-item admin-only" onclick="showPage('depts')"><span class="icon">🏬</span> Danh mục Khoa Phòng</div>
+      <div class="nav-section admin-only">Tài liệu</div>
+      <div class="nav-item admin-only" onclick="showPage('guide')"><span class="icon">📖</span> Hướng dẫn sử dụng</div>
     </nav>
     <div class="sidebar-user">
       <div class="user-info">
@@ -1049,8 +1051,476 @@
       </div>
     </div>
 
+    <!-- ============================================================
+         PAGE: HƯỚNG DẪN SỬ DỤNG
+    ============================================================ -->
+    <div class="page" id="page-guide">
+      <div class="guide-shell">
+
+        <!-- Sidebar mục lục -->
+        <nav class="guide-toc" id="guideToc">
+          <div class="guide-toc-label">📖 MỤC LỤC</div>
+          <a class="guide-toc-item active" onclick="switchGuideSection('gs-tongquan')">🗺️ Tổng quan hệ thống</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-phanquyen')">🔐 Phân quyền tài khoản</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-khoidong')">🚀 Khởi động & Thiết lập</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-dashboard')">📊 Dashboard</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-nhapdulieu')">📝 Nhập phiếu khảo sát</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-danhdach')">📋 Danh sách phiếu</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-bytqueue')">📤 Gửi phiếu lên BYT</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-autofill')">🤖 Tự động điền BYT</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-baocao')">📑 Tạo báo cáo</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-lichsu')">🕒 Lịch sử hệ thống</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-caidat')">⚙️ Cấu hình hệ thống</a>
+          <div class="guide-toc-label" style="margin-top:12px">🖥️ HAILONG ENGINE</div>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-hle-tongquan')">🖥️ Tổng quan ứng dụng</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-hle-excel')">📂 Upload từ Excel</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-hle-sheet')">☁️ Upload từ Google Sheet</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-hle-analytics')">📈 Phân tích khảo sát</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-hle-history')">🕒 Lịch sử & Nhật ký</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-hle-settings')">⚙️ Cài đặt Engine</a>
+          <div class="guide-toc-label" style="margin-top:12px">⚡ VẬN HÀNH</div>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-quytrinhday')">🔄 Quy trình hàng ngày</a>
+          <a class="guide-toc-item" onclick="switchGuideSection('gs-sukien')">🛑 Xử lý sự cố</a>
+        </nav>
+
+        <!-- Nội dung hướng dẫn -->
+        <div class="guide-content" id="guideContent">
+
+          <!-- TỔNG QUAN -->
+          <div class="guide-section active" id="gs-tongquan">
+            <div class="guide-section-head">
+              <div class="guide-section-icon">🗺️</div>
+              <div>
+                <div class="guide-section-label">Chương 1</div>
+                <h2>Tổng quan Hệ thống</h2>
+                <p>Kiến trúc 2 thành phần: Web App (KSHL) thu thập phiếu — Desktop App (Hailong Engine) gửi lên BYT.</p>
+              </div>
+            </div>
+            <div class="guide-card">
+              <div class="guide-card-head">🏗️ Kiến trúc tổng thể</div>
+              <div class="guide-card-body">
+                <div class="guide-flow">
+                  <div class="guide-flow-step" style="background:#E3F2FD;border-color:#BBDEFB">
+                    <div class="guide-flow-icon">📱🖥️</div>
+                    <div class="guide-flow-title">Nhập phiếu</div>
+                    <div class="guide-flow-sub">KSHL Web App<br>Nhân viên / Người dân điền phiếu</div>
+                  </div>
+                  <div class="guide-flow-arrow">→</div>
+                  <div class="guide-flow-step" style="background:#E8F5E9;border-color:#A5D6A7">
+                    <div class="guide-flow-icon">☁️</div>
+                    <div class="guide-flow-title">Google Sheets</div>
+                    <div class="guide-flow-sub">5 tab: CONFIG · SURVEYS · USERS · DEPTS · HISTORY</div>
+                  </div>
+                  <div class="guide-flow-arrow">→</div>
+                  <div class="guide-flow-step" style="background:#FFF8E1;border-color:#FFE082">
+                    <div class="guide-flow-icon">🖥️</div>
+                    <div class="guide-flow-title">Hailong Engine</div>
+                    <div class="guide-flow-sub">Desktop App (máy operator)<br>Đọc BYT_QUEUE → gửi lên BYT</div>
+                  </div>
+                  <div class="guide-flow-arrow">→</div>
+                  <div class="guide-flow-step" style="background:#FFEBEE;border-color:#FFCDD2">
+                    <div class="guide-flow-icon">🏛️</div>
+                    <div class="guide-flow-title">Cổng BYT</div>
+                    <div class="guide-flow-sub">hailong.chatluongbenhvien.vn<br>Phiếu được ghi nhận chính thức</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="guide-card">
+              <div class="guide-card-head">📋 5 loại phiếu khảo sát</div>
+              <div class="guide-card-body">
+                <table class="guide-table">
+                  <tr><th>Mẫu</th><th>Đối tượng</th><th>Số câu</th><th>Căn cứ</th><th>Gửi BYT</th></tr>
+                  <tr><td><b>Mẫu 1 – Nội trú</b></td><td>Bệnh nhân đang nằm viện</td><td>36 câu (A–E)</td><td>QĐ 56/2024</td><td><span class="guide-chip chip-green">✅ Hailong Engine</span></td></tr>
+                  <tr><td><b>Mẫu 2 – Ngoại trú</b></td><td>Bệnh nhân khám theo ngày</td><td>31 câu (A–E)</td><td>QĐ 56/2024</td><td><span class="guide-chip chip-green">✅ Hailong Engine</span></td></tr>
+                  <tr><td><b>Mẫu 3 – NVYT</b></td><td>Nhân viên y tế</td><td>Nhiều tiêu chí</td><td>QĐ 56/2024</td><td><span class="guide-chip chip-orange">🤖 Autofill thủ công</span></td></tr>
+                  <tr><td><b>Mẫu 4 – Người mẹ sinh</b></td><td>Sản phụ sau sinh</td><td>26 câu</td><td>QĐ 3869/2019</td><td><span class="guide-chip chip-orange">🤖 Autofill thủ công</span></td></tr>
+                  <tr><td><b>Mẫu 5 – Nuôi con sữa mẹ</b></td><td>Mẹ nuôi con sữa mẹ</td><td>17 câu</td><td>QĐ 3869/2019</td><td><span class="guide-chip chip-orange">🤖 Autofill thủ công</span></td></tr>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- PHÂN QUYỀN -->
+          <div class="guide-section" id="gs-phanquyen">
+            <div class="guide-divider">🔐 Phân quyền tài khoản</div>
+            <div class="guide-card">
+              <div class="guide-card-head">Bảng so sánh quyền hạn</div>
+              <div class="guide-card-body">
+                <table class="guide-table">
+                  <tr><th>Chức năng</th><th>Người dân</th><th>Nhân viên</th><th>Admin</th></tr>
+                  <tr><td>Nhập phiếu Mẫu 1, 2, 4, 5</td><td>✅</td><td>✅</td><td>✅</td></tr>
+                  <tr><td>Nhập phiếu Mẫu 3 (NVYT)</td><td>❌</td><td>✅</td><td>✅</td></tr>
+                  <tr><td>Xem Dashboard tổng quan</td><td>❌</td><td>❌</td><td>✅</td></tr>
+                  <tr><td>Danh sách toàn bộ phiếu</td><td>❌</td><td>❌</td><td>✅</td></tr>
+                  <tr><td>Đồng bộ Google Sheets</td><td>❌</td><td>❌</td><td>✅</td></tr>
+                  <tr><td>Gửi phiếu lên BYT</td><td>❌</td><td>❌</td><td>✅</td></tr>
+                  <tr><td>Tạo báo cáo Word/HTML</td><td>❌</td><td>❌</td><td>✅</td></tr>
+                  <tr><td>Quản lý tài khoản</td><td>❌</td><td>❌</td><td>✅</td></tr>
+                  <tr><td>Cấu hình hệ thống</td><td>❌</td><td>❌</td><td>✅</td></tr>
+                  <tr><td>Đổi mật khẩu cá nhân</td><td>❌</td><td>✅</td><td>✅</td></tr>
+                </table>
+                <div class="guide-info-box" style="margin-top:12px">💡 Tài khoản Admin mặc định sau cài đặt: <code>admin</code> / <code>BV@2024</code>. Đổi ngay sau lần đăng nhập đầu tiên.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- KHỞI ĐỘNG -->
+          <div class="guide-section" id="gs-khoidong">
+            <div class="guide-divider">🚀 Khởi động & Thiết lập</div>
+            <div class="guide-card">
+              <div class="guide-card-head">Lần đầu cài đặt – 4 bước bootstrap</div>
+              <div class="guide-card-body">
+                <div class="guide-steps">
+                  <div class="guide-step"><div class="guide-step-num">1</div><div><div class="guide-step-title">Mở ứng dụng và đăng nhập Admin</div><div class="guide-step-desc">Truy cập URL deploy hoặc mở file <code>index.html</code>. Đăng nhập bằng tài khoản mặc định <code>admin / BV@2024</code>.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">2</div><div><div class="guide-step-title">Vào Cấu hình → nhập Spreadsheet ID</div><div class="guide-step-desc">Dán Spreadsheet ID từ Google Sheets vào ô cấu hình. Bấm <b>Kết nối & Khởi tạo</b>. Hệ thống tự tạo 5 tab: CONFIG · SURVEYS · USERS · DEPTS · HISTORY · BYT_QUEUE.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">3</div><div><div class="guide-step-title">Nhập danh mục Khoa/Phòng</div><div class="guide-step-desc">Vào <b>Danh mục Khoa/Phòng</b> → dán danh sách hoặc tải mẫu → bấm <b>Import</b>.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">4</div><div><div class="guide-step-title">Tạo tài khoản nhân viên</div><div class="guide-step-desc">Vào <b>Quản lý tài khoản</b> → thêm tài khoản cho từng nhân viên với đúng quyền (admin/user).</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- DASHBOARD -->
+          <div class="guide-section" id="gs-dashboard">
+            <div class="guide-divider">📊 Dashboard</div>
+            <div class="guide-card">
+              <div class="guide-card-head">Tổng quan các chỉ số trên Dashboard</div>
+              <div class="guide-card-body">
+                <table class="guide-table">
+                  <tr><th>Chỉ số</th><th>Mô tả</th></tr>
+                  <tr><td>Tổng phiếu hôm nay</td><td>Số phiếu được lưu trong ngày hiện tại</td></tr>
+                  <tr><td>Chờ gửi BYT</td><td>Phiếu M1+M2 đang chờ upload lên cổng BYT (status = Pending)</td></tr>
+                  <tr><td>Đã gửi BYT</td><td>Phiếu đã upload thành công (UPLOAD_STATUS = Success)</td></tr>
+                  <tr><td>Phân bố theo mẫu</td><td>Biểu đồ tỷ lệ M1 / M2 / M3 / M4 / M5</td></tr>
+                  <tr><td>Hoạt động gần đây</td><td>10 thao tác cuối cùng trong hệ thống</td></tr>
+                </table>
+                <div class="guide-info-box" style="margin-top:12px">💡 Dashboard cập nhật realtime từ localStorage. Bấm nút <b>🔄 Đồng bộ từ Sheets</b> để lấy dữ liệu mới nhất từ Google Sheets.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- NHẬP PHIẾU -->
+          <div class="guide-section" id="gs-nhapdulieu">
+            <div class="guide-divider">📝 Nhập phiếu khảo sát</div>
+            <div class="guide-card">
+              <div class="guide-card-head">5 phương thức nhập phiếu</div>
+              <div class="guide-card-body">
+                <div class="guide-steps">
+                  <div class="guide-step"><div class="guide-step-num">M1</div><div><div class="guide-step-title">Mẫu 1 – Nội trú (QĐ 56/2024)</div><div class="guide-step-desc">36 câu hỏi nhóm A–E. Chọn Khoa/Phòng → điền đầy đủ → bấm <b>Lưu phiếu</b>. Hệ thống tự ghi vào BYT_QUEUE để chờ upload.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">M2</div><div><div class="guide-step-title">Mẫu 2 – Ngoại trú (QĐ 56/2024)</div><div class="guide-step-desc">31 câu hỏi nhóm A–E. Quy trình tương tự Mẫu 1. Cũng tự ghi vào BYT_QUEUE.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">M3</div><div><div class="guide-step-title">Mẫu 3 – Nhân viên Y tế (QĐ 56/2024)</div><div class="guide-step-desc">Không gửi qua Hailong Engine. Sử dụng chức năng <b>Tự động điền BYT</b> riêng.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">M4</div><div><div class="guide-step-title">Mẫu 4 – Người mẹ sinh con (QĐ 3869/2019)</div><div class="guide-step-desc">26 câu. Sử dụng Autofill thủ công.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">M5</div><div><div class="guide-step-title">Mẫu 5 – Nuôi con sữa mẹ (QĐ 3869/2019)</div><div class="guide-step-desc">17 câu. Sử dụng Autofill thủ công.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- DANH SÁCH PHIẾU -->
+          <div class="guide-section" id="gs-danhdach">
+            <div class="guide-divider">📋 Danh sách phiếu</div>
+            <div class="guide-card">
+              <div class="guide-card-head">Quản lý danh sách phiếu</div>
+              <div class="guide-card-body">
+                <table class="guide-table">
+                  <tr><th>Cột</th><th>Mô tả</th></tr>
+                  <tr><td>STT / ID</td><td>Số thứ tự và mã phiếu tự sinh</td></tr>
+                  <tr><td>Loại mẫu</td><td>M1 / M2 / M3 / M4 / M5</td></tr>
+                  <tr><td>Khoa/Phòng</td><td>Khoa đã chọn khi nhập phiếu</td></tr>
+                  <tr><td>Thời gian</td><td>Thời điểm lưu phiếu</td></tr>
+                  <tr><td>BYT Status</td><td><span class="guide-chip chip-orange">Pending</span> / <span class="guide-chip chip-green">Success</span> / <span class="guide-chip chip-red">Failed</span></td></tr>
+                  <tr><td>Thao tác</td><td>👁️ Xem chi tiết · 🗑️ Xóa · ⚡ Autofill · 📤 Gửi BYT</td></tr>
+                </table>
+                <div class="guide-info-box" style="margin-top:10px">💡 Lọc nhanh theo Loại mẫu, Khoa/Phòng, Trạng thái BYT. Nhấn <b>Đồng bộ Sheets</b> để đẩy dữ liệu cục bộ lên Google Sheets.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- GỬI PHIẾU BYT -->
+          <div class="guide-section" id="gs-bytqueue">
+            <div class="guide-divider">📤 Gửi phiếu lên BYT</div>
+            <div class="guide-card">
+              <div class="guide-card-head">Hàng đợi BYT_QUEUE và quy trình gửi phiếu M1/M2</div>
+              <div class="guide-card-body">
+                <div class="guide-info-box" style="margin-bottom:12px">ℹ️ Khi nhân viên lưu phiếu Mẫu 1 hoặc Mẫu 2, hệ thống tự động ghi vào tab <b>BYT_QUEUE</b> trên Google Sheets với trạng thái <b>Pending</b>.</div>
+                <div class="guide-steps">
+                  <div class="guide-step"><div class="guide-step-num">1</div><div><div class="guide-step-title">Đồng bộ Sheets</div><div class="guide-step-desc">Bấm <b>🔄 Tải từ Sheets</b> để cập nhật danh sách phiếu Pending từ BYT_QUEUE.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">2</div><div><div class="guide-step-title">Mở Hailong Upload Engine</div><div class="guide-step-desc">Mở ứng dụng desktop Hailong Upload Engine. Chọn <b>Upload từ Google Sheet</b> → nhập cấu hình → bấm <b>▶ Bắt đầu</b>.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">3</div><div><div class="guide-step-title">Kiểm tra kết quả</div><div class="guide-step-desc">Sau khi hoàn tất, cột <code>UPLOAD_STATUS</code> trên Sheet chuyển sang <b>Success</b>. Bấm Đồng bộ lại để cập nhật giao diện.</div></div></div>
+                </div>
+                <div class="guide-warn-box" style="margin-top:10px">⚠️ <b>Mẫu 3, 4, 5</b> KHÔNG dùng Hailong Upload Engine — sử dụng chức năng <b>Tự động điền BYT</b> (Autofill).</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AUTOFILL -->
+          <div class="guide-section" id="gs-autofill">
+            <div class="guide-divider">🤖 Tự động điền BYT</div>
+            <div class="guide-card">
+              <div class="guide-card-head">Autofill BYT cho Mẫu 3, 4, 5</div>
+              <div class="guide-card-body">
+                <div class="guide-steps">
+                  <div class="guide-step"><div class="guide-step-num">1</div><div><div class="guide-step-title">Chọn phiếu cần gửi</div><div class="guide-step-desc">Vào Danh sách phiếu → chọn phiếu M3/M4/M5 → bấm nút <b>⚡ Autofill</b>.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">2</div><div><div class="guide-step-title">Cấu hình tài khoản BYT</div><div class="guide-step-desc">Nhập tài khoản đăng nhập cổng BYT vào mục <b>Cấu hình BYT</b> trong trang Autofill.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">3</div><div><div class="guide-step-title">Bấm Gửi</div><div class="guide-step-desc">Hệ thống tự điền form trên trang BYT. Theo dõi trạng thái trả về.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- BÁO CÁO -->
+          <div class="guide-section" id="gs-baocao">
+            <div class="guide-divider">📑 Tạo báo cáo</div>
+            <div class="guide-card">
+              <div class="guide-card-head">Xuất báo cáo tổng hợp hài lòng</div>
+              <div class="guide-card-body">
+                <table class="guide-table">
+                  <tr><th>Trường</th><th>Mô tả</th><th>Bắt buộc</th></tr>
+                  <tr><td>Tên bệnh viện</td><td>Tên đơn vị xuất hiện trên báo cáo</td><td>✓</td></tr>
+                  <tr><td>Kỳ báo cáo</td><td>Quý / Tháng / Năm</td><td>✓</td></tr>
+                  <tr><td>Chỉ tiêu HL (%)</td><td>Mục tiêu kế hoạch (mặc định 95%)</td><td></td></tr>
+                  <tr><td>Nội dung nhận xét</td><td>Tự động tạo đoạn so sánh với chỉ tiêu</td><td>Tự động</td></tr>
+                </table>
+                <div class="guide-info-box" style="margin-top:10px">💡 File Word xuất ra đúng mẫu BYT gồm: bảng tổng hợp M1+M2+NV, bảng tiêu chí A–E, bảng theo Khoa/Phòng — sẵn sàng ký duyệt gửi Sở Y tế.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- LỊCH SỬ -->
+          <div class="guide-section" id="gs-lichsu">
+            <div class="guide-divider">🕒 Lịch sử hệ thống</div>
+            <div class="guide-card">
+              <div class="guide-card-head">Nhật ký toàn bộ hoạt động</div>
+              <div class="guide-card-body">
+                <p style="color:var(--text2);font-size:13px;line-height:1.7;">Toàn bộ lịch sử đăng nhập, lưu phiếu, thay đổi cấu hình và đồng bộ được ghi lại tại tab <b>HISTORY</b> trên Google Sheets. Nhấn <b>"Tải từ Sheets"</b> để cập nhật.</p>
+                <div class="guide-info-box" style="margin-top:10px">💡 Dùng tính năng tìm kiếm để lọc theo Người dùng, Loại hành động, hoặc Khoảng thời gian.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- CẤU HÌNH -->
+          <div class="guide-section" id="gs-caidat">
+            <div class="guide-divider">⚙️ Cấu hình hệ thống</div>
+            <div class="guide-card">
+              <div class="guide-card-head">Các thông số cấu hình quan trọng</div>
+              <div class="guide-card-body">
+                <table class="guide-table">
+                  <tr><th>Cài đặt</th><th>Mô tả</th></tr>
+                  <tr><td>Spreadsheet ID</td><td>ID của Google Spreadsheet lưu toàn bộ dữ liệu hệ thống</td></tr>
+                  <tr><td>Service Account</td><td>Email SA và Private Key để xác thực Google API</td></tr>
+                  <tr><td>Tên bệnh viện</td><td>Hiển thị trên giao diện và báo cáo xuất ra</td></tr>
+                  <tr><td>Link chia sẻ</td><td>Link dạng <code>?sid=...</code> để nhân viên/người dân truy cập nhập phiếu mà không cần cấu hình</td></tr>
+                </table>
+                <div class="guide-info-box" style="margin-top:10px">💡 Link chia sẻ kèm Spreadsheet ID — nhân viên mở link là ứng dụng tự kết nối Cloud ngay, không cần cấu hình lại.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- HLE TỔNG QUAN -->
+          <div class="guide-section" id="gs-hle-tongquan">
+            <div class="guide-section-head" style="background:linear-gradient(135deg,#0D1B3E 0%,#1A2F6A 100%)">
+              <div class="guide-section-icon">🖥️</div>
+              <div>
+                <div class="guide-section-label">Chương 2</div>
+                <h2>Hailong Upload Engine</h2>
+                <p>Ứng dụng desktop (Electron) cài trên máy tính operator — tự động gửi phiếu lên BYT bằng Playwright.</p>
+              </div>
+            </div>
+            <div class="guide-card">
+              <div class="guide-card-head">🗺️ Giao diện & Menu chính</div>
+              <div class="guide-card-body">
+                <table class="guide-table">
+                  <tr><th>Menu</th><th>Chức năng</th></tr>
+                  <tr><td>📂 Upload Từ Excel</td><td>Đọc file Excel mẫu đã điền dữ liệu → Upload Nội trú / Ngoại trú lên BYT</td></tr>
+                  <tr><td>☁️ Upload Từ Google Sheet</td><td>Kết nối Google Sheet → Đọc hàng đợi BYT_QUEUE → Upload tự động</td></tr>
+                  <tr><td>📈 Phân Tích Khảo Sát</td><td>Biểu đồ, thống kê, xuất báo cáo Word/Excel từ dữ liệu Excel hoặc Google Sheet</td></tr>
+                  <tr><td>🕒 Lịch Sử</td><td>Lịch sử các lượt chạy upload (job) theo thời gian</td></tr>
+                  <tr><td>📋 Nhật Ký</td><td>Log chi tiết theo thời gian thực từng dòng dữ liệu</td></tr>
+                  <tr><td>⚙️ Cài Đặt</td><td>Tài khoản BYT, thời gian delay, hiện/ẩn trình duyệt</td></tr>
+                  <tr><td>📖 Hướng Dẫn Sử Dụng</td><td>Tài liệu đầy đủ tích hợp ngay trong ứng dụng</td></tr>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- HLE EXCEL -->
+          <div class="guide-section" id="gs-hle-excel">
+            <div class="guide-divider">📂 Upload từ Excel</div>
+            <div class="guide-card">
+              <div class="guide-card-head">Quy trình 4 bước upload từ Excel</div>
+              <div class="guide-card-body">
+                <div class="guide-steps">
+                  <div class="guide-step"><div class="guide-step-num">1</div><div><div class="guide-step-title">Chọn loại khảo sát</div><div class="guide-step-desc">Chọn 🏥 <b>Nội Trú</b> hoặc 🚶 <b>Ngoại Trú</b>. Hoặc bấm <b>Tải mẫu</b> để tải file Excel mẫu đã định dạng sẵn.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">2</div><div><div class="guide-step-title">Chọn file Excel</div><div class="guide-step-desc">Bấm <b>Chọn file Excel</b> → chọn file <code>.xlsx</code> đã điền. Hệ thống hiển thị: số dòng, số cột, header. Tùy chọn nâng cao: Dòng bắt đầu và Dòng kết thúc.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">3</div><div><div class="guide-step-title">Theo dõi tiến trình</div><div class="guide-step-desc">4 chỉ số: <b>Tổng phiếu / Đã xử lý / Thành công / Lỗi</b>. Progress bar và log realtime cập nhật từng dòng.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">4</div><div>
+                    <div class="guide-step-title">Điều khiển</div>
+                    <div class="guide-step-desc">
+                      <span class="guide-chip chip-green">▶ Bắt đầu</span> Khởi động Playwright, đăng nhập BYT &nbsp;
+                      <span class="guide-chip chip-orange">⏸ Tạm dừng</span> Dừng sau phiếu hiện tại &nbsp;
+                      <span class="guide-chip chip-red">⏹ Dừng</span> Kết thúc phiên &nbsp;
+                      <span class="guide-chip chip-blue">📥 Xuất kết quả</span> Tải Excel kèm cột STATUS
+                    </div>
+                  </div></div>
+                </div>
+                <div class="guide-warn-box" style="margin-top:12px">⚠️ Không tắt ứng dụng trong khi chạy. Nếu mạng ngắt: bấm <b>Tạm dừng</b> → đợi mạng ổn → bấm <b>Tiếp tục</b>.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- HLE SHEET -->
+          <div class="guide-section" id="gs-hle-sheet">
+            <div class="guide-divider">☁️ Upload từ Google Sheet</div>
+            <div class="guide-card">
+              <div class="guide-card-head">Cấu hình Google Sheet</div>
+              <div class="guide-card-body">
+                <table class="guide-table" style="margin-bottom:14px">
+                  <tr><th>Trường</th><th>Mô tả</th><th>Ghi chú</th></tr>
+                  <tr><td>Spreadsheet ID <span style="color:red">*</span></td><td>ID Google Spreadsheet chứa tab BYT_QUEUE</td><td>Cùng Sheet với KSHL Web App</td></tr>
+                  <tr><td>Service Account Email <span style="color:red">*</span></td><td>Email SA có quyền Editor trên Sheet</td><td>Từ file JSON Key</td></tr>
+                  <tr><td>Private Key (PEM) <span style="color:red">*</span></td><td>Khóa bí mật PEM của SA</td><td>Copy nguyên cả <code>-----BEGIN...END-----</code></td></tr>
+                  <tr><td>Tên tab</td><td>Tab chứa hàng đợi (mặc định: BYT_QUEUE)</td><td>Thường không cần đổi</td></tr>
+                </table>
+                <div class="guide-steps">
+                  <div class="guide-step"><div class="guide-step-num">1</div><div><div class="guide-step-title">Nhập cấu hình → Lưu</div><div class="guide-step-desc">Điền đủ Spreadsheet ID + SA Email + Private Key → bấm 💾 <b>Lưu Cấu Hình</b>.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">2</div><div><div class="guide-step-title">Kiểm tra kết nối</div><div class="guide-step-desc">Bấm 🔗 <b>Kiểm Tra Kết Nối</b>. Xác thực 3 bước: cấu hình → Google API → tab BYT_QUEUE.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">3</div><div><div class="guide-step-title">Chọn loại & xem hàng đợi</div><div class="guide-step-desc">Chọn Nội Trú hoặc Ngoại Trú → bấm 🔄 <b>Làm mới</b> → xem 50 phiếu gần nhất qua Preview.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">4</div><div><div class="guide-step-title">Bắt đầu upload</div><div class="guide-step-desc">Bấm ▶ <b>Bắt đầu</b>. Engine đọc từng dòng Pending → điền lên BYT → ghi <code>UPLOAD_STATUS = Success/Failed</code> ngay trên Sheet.</div></div></div>
+                </div>
+                <div class="guide-success-box" style="margin-top:10px">✅ Sau upload: cột <code>UPLOAD_STATUS</code> → <b>Success</b>. Cột <code>UPLOAD_TIME</code> ghi nhận thời điểm. Phiếu lỗi → <code>UPLOAD_NOTE</code>.</div>
+                <div class="guide-danger-box" style="margin-top:8px">🛑 <b>Lỗi "Kết nối thất bại":</b> Kiểm tra Spreadsheet ID, SA đã được share Editor, private key copy đầy đủ cả dòng <code>-----BEGIN/END PRIVATE KEY-----</code>.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- HLE ANALYTICS -->
+          <div class="guide-section" id="gs-hle-analytics">
+            <div class="guide-divider">📈 Phân tích khảo sát (Engine)</div>
+            <div class="guide-card">
+              <div class="guide-card-head">3 nguồn dữ liệu phân tích</div>
+              <div class="guide-card-body">
+                <div class="guide-flow" style="flex-wrap:wrap">
+                  <div class="guide-flow-step"><div class="guide-flow-icon">📂</div><div class="guide-flow-title">Mở file Excel</div><div class="guide-flow-sub">Upload file Excel chứa dữ liệu đã thu thập</div></div>
+                  <div class="guide-flow-step"><div class="guide-flow-icon">☁️</div><div class="guide-flow-title">Google Sheet</div><div class="guide-flow-sub">Kết nối trực tiếp → Lọc theo quý/tháng/năm</div></div>
+                  <div class="guide-flow-step"><div class="guide-flow-icon">📊</div><div class="guide-flow-title">Demo</div><div class="guide-flow-sub">118 nội trú + 48 ngoại trú + 186 nhân viên</div></div>
+                </div>
+                <table class="guide-table" style="margin:14px 0">
+                  <tr><th>Tab phân tích</th><th>Nội dung</th></tr>
+                  <tr><td>📊 Tổng quan</td><td>Điểm hài lòng tổng hợp, biểu đồ nhóm tiêu chí A–E, so sánh 3 loại khảo sát</td></tr>
+                  <tr><td>📋 Chi tiết tiêu chí</td><td>Điểm % từng câu hỏi (A1...E6), highlight câu yếu/mạnh nhất</td></tr>
+                  <tr><td>🏢 Theo khoa</td><td>Bảng điểm theo từng Khoa/Phòng, radar chart nhóm tiêu chí</td></tr>
+                  <tr><td>📑 Tạo báo cáo</td><td>Xuất Word/Excel theo mẫu BYT sẵn sàng ký duyệt</td></tr>
+                </table>
+                <div class="guide-info-box">💡 Thang điểm: ⭐ ≥4.5 Rất tốt · ✅ 4.0–4.49 Tốt · 📊 3.5–3.99 Khá · ⚠️ 3.0–3.49 Trung bình · 🔴 &lt;3.0 Cần cải thiện. Công thức %: <code>((điểm-1)/4)×100</code></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- HLE HISTORY -->
+          <div class="guide-section" id="gs-hle-history">
+            <div class="guide-divider">🕒 Lịch sử & Nhật ký (Engine)</div>
+            <div class="guide-card">
+              <div class="guide-card-head">Lịch sử — Danh sách job đã chạy</div>
+              <div class="guide-card-body">
+                <table class="guide-table" style="margin-bottom:12px">
+                  <tr><th>Cột</th><th>Mô tả</th></tr>
+                  <tr><td>Loại</td><td>Nội trú 🏥 hoặc Ngoại trú 🚶</td></tr>
+                  <tr><td>Nguồn</td><td><span class="guide-chip chip-blue">Excel</span> hoặc <span class="guide-chip chip-green">Sheet</span></td></tr>
+                  <tr><td>Trạng thái</td><td><span class="guide-chip chip-green">done</span> · <span class="guide-chip chip-orange">paused</span> · <span class="guide-chip chip-red">error</span></td></tr>
+                  <tr><td>Tỷ lệ thành công</td><td>% phiếu gửi thành công / tổng phiếu</td></tr>
+                  <tr><td>Thao tác</td><td>Bấm 👁️ để xem log chi tiết từng dòng</td></tr>
+                </table>
+              </div>
+            </div>
+            <div class="guide-card">
+              <div class="guide-card-head">Nhật Ký — Log chi tiết realtime</div>
+              <div class="guide-card-body">
+                <table class="guide-table" style="margin-bottom:12px">
+                  <tr><th>Tính năng</th><th>Mô tả</th></tr>
+                  <tr><td>2 tab log</td><td>🐛 Debug: log Playwright kỹ thuật · 📄 App: log nghiệp vụ</td></tr>
+                  <tr><td>Lọc level</td><td>INFO / WARN / ERROR — bấm chip màu để lọc</td></tr>
+                  <tr><td>Tìm kiếm</td><td>Nhập từ khoá → highlight kết quả</td></tr>
+                  <tr><td>Auto refresh</td><td>Log cập nhật mỗi 2 giây khi đang chạy</td></tr>
+                  <tr><td>Xuất file .log</td><td>Tải về máy để gửi hỗ trợ kỹ thuật</td></tr>
+                </table>
+                <div class="guide-info-box">💡 Phiếu bị lỗi: switch sang tab <b>Debug</b> → search "Row N" → xem thông báo lỗi cụ thể từ Playwright.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- HLE SETTINGS -->
+          <div class="guide-section" id="gs-hle-settings">
+            <div class="guide-divider">⚙️ Cài đặt Hailong Upload Engine</div>
+            <div class="guide-card">
+              <div class="guide-card-body">
+                <table class="guide-table" style="margin-bottom:14px">
+                  <tr><th>Cài đặt</th><th>Mô tả</th><th>Giá trị gợi ý</th></tr>
+                  <tr><td>Tên đăng nhập BYT <span style="color:red">*</span></td><td>Username đăng nhập hailong.chatluongbenhvien.vn</td><td>Do bệnh viện cung cấp</td></tr>
+                  <tr><td>Mật khẩu BYT <span style="color:red">*</span></td><td>Mã hoá AES-256 trước khi lưu cục bộ</td><td>Do bệnh viện cung cấp</td></tr>
+                  <tr><td>Hiển thị trình duyệt</td><td>Bật: thấy Playwright điền form trực tiếp. Tắt: headless</td><td>Tắt khi chạy chính thức</td></tr>
+                  <tr><td>Thời gian chờ</td><td>Milliseconds chờ giữa 2 lần gửi phiếu</td><td>2000–3000 ms</td></tr>
+                </table>
+                <div class="guide-info-box">💡 Sau khi lưu, bấm <b>🔌 Kiểm tra kết nối BYT</b> để xác nhận đăng nhập thành công trước khi upload.</div>
+                <div class="guide-info-box">💾 Bấm <b>📤 Xuất Backup</b> để lưu cài đặt ra JSON — dùng phục hồi hoặc chuyển sang máy mới.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- QUY TRÌNH HÀNG NGÀY -->
+          <div class="guide-section" id="gs-quytrinhday">
+            <div class="guide-section-head" style="background:linear-gradient(135deg,#1B5E20,#2E7D32)">
+              <div class="guide-section-icon">🔄</div>
+              <div>
+                <div class="guide-section-label">Chương 3</div>
+                <h2>Quy trình vận hành hàng ngày</h2>
+                <p>Checklist công việc đề xuất cho Admin/Operator mỗi ngày làm việc.</p>
+              </div>
+            </div>
+            <div class="guide-card">
+              <div class="guide-card-head">🌅 Đầu ca (sáng)</div>
+              <div class="guide-card-body">
+                <div class="guide-steps">
+                  <div class="guide-step"><div class="guide-step-num">1</div><div><div class="guide-step-title">Đăng nhập KSHL Web App</div><div class="guide-step-desc">Kiểm tra Dashboard: số phiếu Pending BYT, phiếu mới hôm qua.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">2</div><div><div class="guide-step-title">Mở Hailong Upload Engine</div><div class="guide-step-desc">Kiểm tra cài đặt BYT còn hiệu lực → bấm Kiểm tra kết nối BYT.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">3</div><div><div class="guide-step-title">Upload phiếu Pending</div><div class="guide-step-desc">Chọn Upload từ Google Sheet → chọn loại → Bắt đầu. Theo dõi đến khi hoàn tất.</div></div></div>
+                </div>
+              </div>
+            </div>
+            <div class="guide-card">
+              <div class="guide-card-head">🌆 Cuối ca (chiều)</div>
+              <div class="guide-card-body">
+                <div class="guide-steps">
+                  <div class="guide-step"><div class="guide-step-num">1</div><div><div class="guide-step-title">Đồng bộ Sheets</div><div class="guide-step-desc">Bấm Đồng bộ từ Sheets để đẩy toàn bộ phiếu hôm nay lên Cloud.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">2</div><div><div class="guide-step-title">Upload lần cuối</div><div class="guide-step-desc">Chạy lại Upload Engine để xử lý phiếu mới nhập trong ngày.</div></div></div>
+                  <div class="guide-step"><div class="guide-step-num">3</div><div><div class="guide-step-title">Kiểm tra Dashboard</div><div class="guide-step-desc">Đảm bảo số phiếu Pending = 0 trước khi kết thúc ca.</div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- XỬ LÝ SỰ CỐ -->
+          <div class="guide-section" id="gs-sukien">
+            <div class="guide-divider">🛑 Xử lý sự cố thường gặp</div>
+            <div class="guide-card">
+              <div class="guide-card-body">
+                <table class="guide-table">
+                  <tr><th>Sự cố</th><th>Nguyên nhân</th><th>Cách xử lý</th></tr>
+                  <tr><td>Phiếu bị lỗi không rõ nguyên nhân</td><td>Playwright timeout / selector thay đổi</td><td>Vào Nhật Ký → tab Debug → tìm "Row N" → xem chi tiết</td></tr>
+                  <tr><td>Mạng ngắt giữa chừng</td><td>Kết nối Internet không ổn định</td><td>Bấm Tạm dừng → đợi mạng → bấm Tiếp tục</td></tr>
+                  <tr><td>Kết nối Sheet thất bại</td><td>SA chưa được share / key sai</td><td>Kiểm tra SA đã share Editor, private key đầy đủ 2 dòng BEGIN/END</td></tr>
+                  <tr><td>Biểu đồ Word bị trắng</td><td>SVG chưa render xong</td><td>Bật "chụp ảnh biểu đồ" trong tab Tạo báo cáo trước khi xuất</td></tr>
+                  <tr><td>Không đăng nhập được BYT</td><td>Mật khẩu hết hạn / sai</td><td>Vào Cài Đặt Engine → cập nhật mật khẩu → bấm Kiểm tra kết nối</td></tr>
+                </table>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- end guide-content -->
+      </div><!-- end guide-shell -->
+    </div><!-- end page-guide -->
+
   </div><!-- end main-content -->
-</div><!-- end app-shell -->
 
 <!-- MODALS -->
 <div class="modal-backdrop" id="modal-detail">
